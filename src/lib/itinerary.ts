@@ -1,54 +1,52 @@
 // src/lib/itinerary.ts
 
-export const SLOTS = [
-  { key: "breakfast", label: "朝食" },
-  { key: "checkout", label: "チェックアウト" },
-  { key: "am", label: "午前アクティビティ" },
-  { key: "lunch", label: "昼食" },
-  { key: "pm", label: "午後アクティビティ" },
+export const ENTRY_TYPES = [
+  { key: "spot", label: "スポット" },
+  { key: "food", label: "食事" },
+  { key: "activity", label: "アクティビティ" },
+  { key: "move", label: "移動" },
   { key: "checkin", label: "チェックイン" },
-  { key: "night", label: "夜アクティビティ" },
-  { key: "dinner", label: "夕食" },
 ] as const;
 
+export type EntryType = (typeof ENTRY_TYPES)[number]["key"];
 export type DayIndex = 1 | 2 | 3 | 4 | 5;
-export type SlotKey = (typeof SLOTS)[number]["key"];
-export type RowId = `${DayIndex}:${SlotKey}`;
 
-export type RowValue = {
+export type ItemId = string;
+
+export type ItineraryItem = {
+  id: ItemId;
+  day: DayIndex;
+  type: EntryType;
+
+  // 3列だけ
   name: string;
-
-  // リンク類
-  mapUrl: string;      // Google Maps
-  hpUrl: string;       // 公式HP
-  bookingUrl: string;  // Booking等（汎用）
-  airbnbUrl: string;
-  rakutenUrl: string;
-  viatorUrl: string;
-
-  // その他
+  detail: string;
   price: string;
-  placeId: string;
+
+  // 地図連携（UIではリンクとして表示する程度）
+  placeId?: string;
+  mapUrl?: string;
 };
 
-export function makeInitialRows(): Record<RowId, RowValue> {
-  const rows = {} as Record<RowId, RowValue>;
-  const empty = (): RowValue => ({
-    name: "",
-    mapUrl: "",
-    hpUrl: "",
-    bookingUrl: "",
-    airbnbUrl: "",
-    rakutenUrl: "",
-    viatorUrl: "",
-    price: "",
-    placeId: "",
-  });
-
+export function makeInitialItems(): ItineraryItem[] {
+  const items: ItineraryItem[] = [];
   for (const day of [1, 2, 3, 4, 5] as const) {
-    for (const slot of SLOTS) {
-      rows[`${day}:${slot.key}` as RowId] = empty();
+    for (const t of ENTRY_TYPES) {
+      items.push({
+        id: `${day}:${t.key}:0`,
+        day,
+        type: t.key,
+        name: "",
+        detail: "",
+        price: "",
+        placeId: "",
+        mapUrl: "",
+      });
     }
   }
-  return rows;
+  return items;
+}
+
+export function labelForType(type: EntryType): string {
+  return ENTRY_TYPES.find((x) => x.key === type)?.label ?? type;
 }

@@ -2,11 +2,7 @@
 
 import { useState } from "react";
 
-export default function MapSearchBar({
-  onSearch,
-}: {
-  onSearch: (query: string) => void;
-}) {
+export default function MapSearchBar({ onSearch }: { onSearch: (query: string) => void }) {
   const [value, setValue] = useState("");
 
   const triggerSearch = () => {
@@ -17,8 +13,8 @@ export default function MapSearchBar({
 
   return (
     <div className="absolute left-1/2 top-4 z-[45] -translate-x-1/2 pointer-events-auto">
-      <div className="flex items-center gap-2 rounded-full bg-white/95 shadow-lg border border-neutral-200 px-3 py-1.5 min-w-[260px] max-w-[420px]">
-        <span className="text-neutral-500 text-sm">🔍</span>
+      <div className="flex items-center gap-2 rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 px-3 py-1.5 min-w-[260px] max-w-[420px]">
+        <span className="text-neutral-300 text-sm">🔍</span>
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -29,12 +25,9 @@ export default function MapSearchBar({
             }
           }}
           placeholder="場所名・店名・住所で検索"
-          className="flex-1 border-none outline-none text-sm bg-transparent"
+          className="flex-1 border-none outline-none text-sm bg-transparent text-neutral-100 placeholder:text-neutral-500"
         />
-        <button
-          onClick={triggerSearch}
-          className="px-3 py-1 rounded-full bg-neutral-900 text-white text-xs"
-        >
+        <button onClick={triggerSearch} className="px-3 py-1 rounded-full bg-neutral-100 text-neutral-900 text-xs">
           検索
         </button>
       </div>

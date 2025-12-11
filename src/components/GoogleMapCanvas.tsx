@@ -31,12 +31,12 @@ export default function GoogleMapCanvas({
   const markerRef = useRef<google.maps.Marker | null>(null);
   const selectedRowRef = useRef<RowId | null>(selectedRowId);
 
-  // 現在選択されている行を ref に保持
+  // 選択中の rowId を常に保持
   useEffect(() => {
     selectedRowRef.current = selectedRowId;
   }, [selectedRowId]);
 
-  // ① マップ初期化 ＋ マップ上のPOIクリック → 行に反映
+  // ① マップ初期化（航空写真 HYBRID）＋地図クリックで行へ反映
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey || !divRef.current) return;
@@ -62,17 +62,21 @@ export default function GoogleMapCanvas({
         mapTypeControl: false,
         fullscreenControl: false,
         streetViewControl: false,
+
+        // ★ 地図は航空写真＋ラベル（HYBRID）
+        mapTypeId: google.maps.MapTypeId.HYBRID,
       });
 
       mapRef.current = map;
 
+      // 地図クリックでスポット取得
       clickListener = map.addListener("click", (e: google.maps.MapMouseEvent) => {
         const raw = e as any;
         const placeId = raw.placeId as string | undefined;
 
         const rowId = selectedRowRef.current;
-        if (!rowId) return; // 行未選択
-        if (!placeId) return; // 背景クリック
+        if (!rowId) return;
+        if (!placeId) return;
 
         const service = new google.maps.places.PlacesService(map);
         service.getDetails(
@@ -85,7 +89,7 @@ export default function GoogleMapCanvas({
               console.error("Places API error:", status);
               onPickPlace(rowId, {
                 placeId,
-                name: "テストスポット",
+                name: "名称未取得スポット",
               });
               return;
             }
@@ -106,7 +110,7 @@ export default function GoogleMapCanvas({
     };
   }, [onPickPlace]);
 
-  // ② focusName（検索バー or 左リスト） → その場所にフォーカスしてピンを出す
+  // ② 名前指定でフォーカス → ピンを出す
   useEffect(() => {
     if (!focusName || !mapRef.current) return;
 
@@ -129,14 +133,13 @@ export default function GoogleMapCanvas({
       }
 
       const place = results[0];
-      if (!place.geometry || !place.geometry.location) return;
+      if (!place.geometry?.location) return;
 
       map.panTo(place.geometry.location);
       map.setZoom(15);
 
-      if (markerRef.current) {
-        markerRef.current.setMap(null);
-      }
+      if (markerRef.current) markerRef.current.setMap(null);
+
       markerRef.current = new google.maps.Marker({
         map,
         position: place.geometry.location,
@@ -150,12 +153,13 @@ export default function GoogleMapCanvas({
   return (
     <div className="relative h-full w-full">
       <div ref={divRef} className="absolute inset-0" />
+
       {!hasKey && (
         <div className="absolute inset-0 grid place-items-center bg-neutral-100">
           <div className="rounded-xl bg-white p-4 shadow">
-            <div className="font-semibold">Google Maps APIキーが未設定です</div>
+            <div className="font-semibold">Google Maps API キーが未設定です</div>
             <div className="text-sm text-neutral-600">
-              .env.local に NEXT_PUBLIC_GOOGLE_MAPS_API_KEY を入れてください
+              .env.local に NEXT_PUBLIC_GOOGLE_MAPS_API_KEY を書いてください
             </div>
           </div>
         </div>

@@ -8,7 +8,7 @@ export default function ChatCorner() {
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
-      content: "右下チャット（ガワ）。旅程づくりの相談に使う想定です。",
+      content: "右下チャット（v2）。旅程づくりの相談に使う想定です。",
     },
   ]);
   const [text, setText] = useState("");
@@ -30,21 +30,13 @@ export default function ChatCorner() {
         body: JSON.stringify({ messages: next }),
       });
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: data.text ?? "(no text)",
-        },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", content: data.text ?? "(no text)" }]);
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            "エラー：APIに接続できませんでした。\n" +
-            String(err?.message ?? err ?? ""),
+          content: "エラー：APIに接続できませんでした。\n" + String(err?.message ?? err ?? ""),
         },
       ]);
     } finally {
@@ -53,21 +45,20 @@ export default function ChatCorner() {
   };
 
   return (
-    <div className="h-full rounded-2xl bg-white/90 backdrop-blur shadow-lg border border-neutral-200 flex flex-col overflow-hidden">
-      <div className="px-3 py-2 border-b border-neutral-200 text-sm font-semibold">
+    <div className="h-full rounded-2xl bg-neutral-950/60 backdrop-blur border border-neutral-800 flex flex-col overflow-hidden">
+      <div className="px-3 py-2 border-b border-neutral-800 text-sm font-semibold text-neutral-100">
         Chat（OpenAI API）
       </div>
 
-      {/* メッセージ一覧 */}
       <div className="flex-1 overflow-auto p-3 space-y-2 text-sm">
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
             <span
               className={
-                "inline-block max-w-[90%] rounded-xl px-3 py-2 whitespace-pre-wrap " +
+                "inline-block max-w-[90%] rounded-xl px-3 py-2 whitespace-pre-wrap border " +
                 (m.role === "user"
-                  ? "bg-neutral-900 text-white"
-                  : "bg-neutral-100 text-neutral-900")
+                  ? "bg-neutral-100 text-neutral-900 border-neutral-200"
+                  : "bg-neutral-900/60 text-neutral-100 border-neutral-800")
               }
             >
               {m.content}
@@ -76,8 +67,7 @@ export default function ChatCorner() {
         ))}
       </div>
 
-      {/* 入力欄 */}
-      <div className="p-2 border-t border-neutral-200 flex gap-2">
+      <div className="p-2 border-t border-neutral-800 flex gap-2">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -89,12 +79,12 @@ export default function ChatCorner() {
           }}
           placeholder="旅程の相談を入力…（Shift+Enterで改行）"
           rows={1}
-          className="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-sm resize-none leading-relaxed"
+          className="flex-1 rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-sm resize-none leading-relaxed text-neutral-100 placeholder:text-neutral-500"
         />
         <button
           onClick={send}
           disabled={busy}
-          className="rounded-xl bg-neutral-900 text-white px-4 text-sm disabled:opacity-50"
+          className="rounded-xl bg-neutral-100 text-neutral-900 px-4 text-sm disabled:opacity-50"
         >
           送信
         </button>
