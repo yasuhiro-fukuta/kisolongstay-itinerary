@@ -20,7 +20,10 @@ export default function ItineraryPanel({
   selectedItemId: string | null;
 
   onSelectItem: (id: string) => void;
-  onChangeItem: (id: string, patch: Partial<Pick<ItineraryItem, "name" | "detail" | "price" | "mapUrl" | "placeId">>) => void;
+  onChangeItem: (
+    id: string,
+    patch: Partial<Pick<ItineraryItem, "name" | "detail" | "price" | "mapUrl" | "placeId">>
+  ) => void;
   onAddItem: (day: DayIndex, type: EntryType) => void;
 
   onChangeDate: (dayIdx0: number, v: string) => void;
@@ -31,17 +34,21 @@ export default function ItineraryPanel({
   userLabel?: string | null;
 }) {
   return (
-    <div className="h-full flex flex-col">
+    <div className="text-neutral-100">
       {/* Header */}
       <div className="p-3 border-b border-neutral-800 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-semibold truncate text-neutral-100">
+          <div className="font-semibold truncate">
             木曽南部ロングステイ Itinerary（mobile v2）
           </div>
           {userLabel ? (
-            <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
+            <div className="text-xs text-neutral-400 truncate">
+              ログイン中：{userLabel}
+            </div>
           ) : (
-            <div className="text-xs text-neutral-400 truncate">未ログイン（保存時にログインできます）</div>
+            <div className="text-xs text-neutral-400 truncate">
+              未ログイン（保存する時にログインできます）
+            </div>
           )}
         </div>
 
@@ -54,12 +61,12 @@ export default function ItineraryPanel({
         </button>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-auto p-3 space-y-6">
+      {/* Body（スクロールは外側のコンテナに任せる） */}
+      <div className="p-3 space-y-6">
         {([1, 2, 3, 4, 5] as const).map((day, idx0) => (
           <section key={day} className="space-y-3">
             <div className="flex items-center gap-2">
-              <div className="font-semibold text-neutral-100">Day{day}</div>
+              <div className="font-semibold">Day{day}</div>
               <input
                 type="date"
                 value={dates[idx0] ?? ""}
@@ -73,9 +80,12 @@ export default function ItineraryPanel({
                 const list = items.filter((x) => x.day === day && x.type === t.key);
 
                 return (
-                  <div key={t.key} className="rounded-2xl border border-neutral-800 bg-neutral-900/35 overflow-hidden">
+                  <div
+                    key={t.key}
+                    className="rounded-2xl border border-neutral-800 bg-neutral-900/35 overflow-hidden"
+                  >
                     <div className="px-3 py-2 border-b border-neutral-800 flex items-center justify-between">
-                      <div className="text-sm font-semibold text-neutral-100">{t.label}</div>
+                      <div className="text-sm font-semibold">{t.label}</div>
                       <button
                         onClick={() => onAddItem(day, t.key)}
                         className="rounded-lg px-2 py-1 text-xs bg-neutral-100 text-neutral-900"
@@ -109,28 +119,32 @@ export default function ItineraryPanel({
                                 onChange={() => onSelectItem(v.id)}
                                 title="この行に地図/メニューから入力"
                               />
-                              <div className="text-sm font-medium text-neutral-100">{badge}</div>
+                              <div className="text-sm font-medium">{badge}</div>
                             </div>
 
-                            {/* タイトルの“下”にフォーム */}
+                            {/* タイトルの下に 3列だけ */}
                             <div className="mt-2 grid grid-cols-1 gap-2">
                               <input
                                 value={v.name}
-                                onChange={(e) => onChangeItem(v.id, { name: e.target.value })}
+                                onChange={(e) =>
+                                  onChangeItem(v.id, { name: e.target.value })
+                                }
                                 placeholder="スポット/サービス名"
                                 className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
                               />
-
                               <input
                                 value={v.detail}
-                                onChange={(e) => onChangeItem(v.id, { detail: e.target.value })}
+                                onChange={(e) =>
+                                  onChangeItem(v.id, { detail: e.target.value })
+                                }
                                 placeholder="詳細（URL/メモなど）"
                                 className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
                               />
-
                               <input
                                 value={v.price}
-                                onChange={(e) => onChangeItem(v.id, { price: e.target.value })}
+                                onChange={(e) =>
+                                  onChangeItem(v.id, { price: e.target.value })
+                                }
                                 placeholder="金額"
                                 className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
                               />
@@ -138,7 +152,12 @@ export default function ItineraryPanel({
 
                             {v.mapUrl && (
                               <div className="mt-2 text-xs text-neutral-300">
-                                <a className="underline" href={v.mapUrl} target="_blank" rel="noreferrer">
+                                <a
+                                  className="underline"
+                                  href={v.mapUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
                                   Google Maps
                                 </a>
                               </div>
