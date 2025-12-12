@@ -1,8 +1,22 @@
 // src/lib/itineraryStore.ts
 
-import { addDoc, collection, getDoc, getDocs, query, where, doc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  doc,
+} from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import { ENTRY_TYPES, makeInitialItems, type DayIndex, type EntryType, type ItineraryItem } from "@/lib/itinerary";
+import {
+  ENTRY_TYPES,
+  makeInitialItems,
+  type DayIndex,
+  type EntryType,
+  type ItineraryItem,
+} from "@/lib/itinerary";
 
 export type SavedItineraryMeta = {
   id: string;
@@ -15,19 +29,18 @@ function pad(n: number) {
 }
 
 function buildTitle(date: Date) {
-  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(
+    date.getDate()
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const typeOrder = new Map<EntryType, number>(
-  ENTRY_TYPES.map((t, i) => [t.key, i])
-);
+const typeOrder = new Map<EntryType, number>(ENTRY_TYPES.map((t, i) => [t.key, i]));
 
-const entryTypeSet = new Set(ENTRY_TYPES.map((t) => t.key));
+// ★ここが重要：Set<EntryType> に型を固定する
+const entryTypeSet: Set<EntryType> = new Set(ENTRY_TYPES.map((t) => t.key as EntryType));
 
-function isEntryType(v: any): v is EntryType {
-  return typeof v === "string" && entryTypeSet.has(v);
+function isEntryType(v: unknown): v is EntryType {
+  return typeof v === "string" && entryTypeSet.has(v as EntryType);
 }
 
 function slotToType(slot: string): EntryType {
@@ -38,13 +51,17 @@ function slotToType(slot: string): EntryType {
   return "spot";
 }
 
-function normalizeDay(v: any): DayIndex | null {
+function normalizeDay(v: unknown): DayIndex | null {
   const n = Number(v);
   if (n === 1 || n === 2 || n === 3 || n === 4 || n === 5) return n;
   return null;
 }
 
-export async function saveItinerary(uid: string, dates: string[], items: ItineraryItem[]) {
+export async function saveItinerary(
+  uid: string,
+  dates: string[],
+  items: ItineraryItem[]
+) {
   const now = new Date();
   const title = buildTitle(now);
   const savedAtMs = now.getTime();
@@ -89,7 +106,10 @@ export async function listItineraries(uid: string): Promise<SavedItineraryMeta[]
   return list;
 }
 
-export async function loadItinerary(uid: string, id: string): Promise<{ dates: string[]; items: ItineraryItem[] }> {
+export async function loadItinerary(
+  uid: string,
+  id: string
+): Promise<{ dates: string[]; items: ItineraryItem[] }> {
   const ref = doc(db, "itineraries", id);
   const snap = await getDoc(ref);
 
@@ -106,6 +126,7 @@ export async function loadItinerary(uid: string, id: string): Promise<{ dates: s
       .map((raw: any) => {
         const day = normalizeDay(raw?.day);
         const type = raw?.type;
+
         if (!day || !isEntryType(type)) return null;
 
         return {
@@ -129,7 +150,7 @@ export async function loadItinerary(uid: string, id: string): Promise<{ dates: s
     const counters: Record<string, number> = {};
     const items: ItineraryItem[] = [];
 
-    for (const r of data.rows) {
+    for (const r of data.rows ?? []) {
       const rowId = String(r?.id ?? "");
       const [dayStr, slot] = rowId.split(":");
       const day = normalizeDay(dayStr);
