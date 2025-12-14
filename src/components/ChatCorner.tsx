@@ -6,10 +6,14 @@ type Msg = { role: "user" | "assistant"; content: string };
 
 export default function ChatCorner() {
   const [messages, setMessages] = useState<Msg[]>([
+<<<<<<< HEAD
     {
       role: "assistant",
       content: "右下チャット（v2）。旅程づくりの相談に使う想定です。",
     },
+=======
+    { role: "assistant", content: "右下チャット（v2）。旅程づくりの相談に使う想定です。" },
+>>>>>>> df076ec (stabilized version secrets removed)
   ]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -17,6 +21,7 @@ export default function ChatCorner() {
   const send = async () => {
     const t = text.trim();
     if (!t || busy) return;
+
     setText("");
     setBusy(true);
 
@@ -29,6 +34,7 @@ export default function ChatCorner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: next }),
       });
+<<<<<<< HEAD
       const data = await res.json();
       setMessages((prev) => [...prev, { role: "assistant", content: data.text ?? "(no text)" }]);
     } catch (err: any) {
@@ -38,6 +44,28 @@ export default function ChatCorner() {
           role: "assistant",
           content: "エラー：APIに接続できませんでした。\n" + String(err?.message ?? err ?? ""),
         },
+=======
+
+      const data = await res.json().catch(() => ({} as any));
+
+      if (!res.ok) {
+        const msg =
+          (data?.error ? `APIエラー：${data.error}` : `APIエラー：HTTP ${res.status}`) +
+          (data?.text ? `\n${data.text}` : "");
+        setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+        return;
+      }
+
+      const reply = data?.text ?? "";
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: reply || "(empty response)" },
+      ]);
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "通信エラー：\n" + String(err?.message ?? err) },
+>>>>>>> df076ec (stabilized version secrets removed)
       ]);
     } finally {
       setBusy(false);

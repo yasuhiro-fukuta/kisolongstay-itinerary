@@ -4,32 +4,35 @@ import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
 import GoogleMapCanvas, { type PickedPlace } from "@/components/GoogleMapCanvas";
+<<<<<<< HEAD
+=======
+import MapSearchBar from "@/components/MapSearchBar";
+import LeftDrawer from "@/components/LeftDrawer";
+>>>>>>> df076ec (stabilized version secrets removed)
 import ItineraryPanel from "@/components/ItineraryPanel";
 import ChatCorner from "@/components/ChatCorner";
-import LeftDrawer from "@/components/LeftDrawer";
-import MapSearchBar from "@/components/MapSearchBar";
 import AuthModal from "@/components/AuthModal";
 
 import { auth } from "@/lib/firebaseClient";
+<<<<<<< HEAD
 import {
   makeInitialItems,
   type DayIndex,
   type EntryType,
   type ItineraryItem,
 } from "@/lib/itinerary";
+=======
+import { makeInitialItems, type DayIndex, type EntryType, type ItineraryItem } from "@/lib/itinerary";
+>>>>>>> df076ec (stabilized version secrets removed)
 import type { SavedPlace } from "@/lib/savedLists";
-import {
-  saveItinerary,
-  listItineraries,
-  loadItinerary,
-  type SavedItineraryMeta,
-} from "@/lib/itineraryStore";
+import { saveItinerary, listItineraries, loadItinerary, type SavedItineraryMeta } from "@/lib/itineraryStore";
 
 function yyyyMmDd(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+<<<<<<< HEAD
 function useIsMobile(breakpointPx = 768) {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
@@ -51,6 +54,13 @@ function makeItemId(day: DayIndex, type: EntryType) {
         (crypto as any).randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
+=======
+function makeItemId(day: DayIndex, type: EntryType) {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+>>>>>>> df076ec (stabilized version secrets removed)
   return `${day}:${type}:${suffix}`;
 }
 
@@ -66,12 +76,28 @@ function buildDetailFromSavedPlace(p: SavedPlace) {
     .map((x) => String(x ?? "").trim())
     .filter(Boolean);
   return parts.join("\n");
+<<<<<<< HEAD
 }
 
 export default function MapItineraryBuilder() {
   const isMobile = useIsMobile();
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>("1:spot:0");
+=======
+}
+
+// ★ここが重要：毎回必ず変わる token を作る
+function makeFocusToken(query: string) {
+  const nonce =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+  return `${query}|||${nonce}`;
+}
+
+export default function MapItineraryBuilder() {
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+>>>>>>> df076ec (stabilized version secrets removed)
   const [items, setItems] = useState<ItineraryItem[]>(() => makeInitialItems());
 
   const [dates, setDates] = useState<string[]>(() => {
@@ -85,6 +111,7 @@ export default function MapItineraryBuilder() {
 
   const [focusName, setFocusName] = useState<string | null>(null);
 
+<<<<<<< HEAD
   // ドロワー開閉
   const [itineraryOpen, setItineraryOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
@@ -101,6 +128,11 @@ export default function MapItineraryBuilder() {
   }, [isMobile]);
 
   // 認証と保存
+=======
+  const [itineraryOpen, setItineraryOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
+
+>>>>>>> df076ec (stabilized version secrets removed)
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 
@@ -114,6 +146,21 @@ export default function MapItineraryBuilder() {
     return user.displayName || user.email || "ログインユーザー";
   }, [user]);
 
+<<<<<<< HEAD
+=======
+  useEffect(() => {
+    return onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        const list = await listItineraries(u.uid);
+        setSavedList(list);
+      } else {
+        setSavedList([]);
+      }
+    });
+  }, []);
+
+>>>>>>> df076ec (stabilized version secrets removed)
   const refreshList = async (u: User) => {
     const list = await listItineraries(u.uid);
     setSavedList(list);
@@ -144,6 +191,7 @@ export default function MapItineraryBuilder() {
     await doSave(user);
   };
 
+<<<<<<< HEAD
   // 認証監視
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
@@ -208,10 +256,66 @@ export default function MapItineraryBuilder() {
     );
 
     if (isMobile) setItineraryOpen(true);
+=======
+
+
+
+
+
+const onPickPlace = (itemId: string | null, place: PickedPlace) => {
+  // ★ 未選択なら最初の行に入れる
+  const targetId =
+    itemId ??
+    items.find((i) => i.day === 1 && i.type === "spot")?.id;
+
+  if (!targetId) return;
+
+  setItems((prev) =>
+    prev.map((it) =>
+      it.id === targetId
+        ? {
+            ...it,
+            name: place.name ?? it.name,
+            mapUrl: place.mapUrl ?? it.mapUrl,
+            placeId: place.placeId ?? it.placeId,
+          }
+        : it
+    )
+  );
+
+  setSelectedItemId(targetId);
+};
+
+
+
+
+  const onSelectFromDrawer = (p: SavedPlace) => {
+    const token = makeFocusToken(p.name);
+    console.log("[MapItineraryBuilder] focus token(drawer):", token);
+    setFocusName(token);
+
+    const target = selectedItemId;
+    if (!target) return;
+
+    const detailCandidate = buildDetailFromSavedPlace(p);
+
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === target
+          ? {
+              ...it,
+              name: p.name ?? it.name,
+              mapUrl: p.mapUrl ?? it.mapUrl,
+              detail: it.detail ? it.detail : detailCandidate,
+            }
+          : it
+      )
+    );
+>>>>>>> df076ec (stabilized version secrets removed)
   };
 
-  // 検索バー
   const onSearch = (query: string) => {
+<<<<<<< HEAD
     setFocusName(query);
     if (!selectedItemId) return;
 
@@ -223,6 +327,19 @@ export default function MapItineraryBuilder() {
   };
 
   // 旅程ロード
+=======
+    const token = makeFocusToken(query);
+    console.log("[MapItineraryBuilder] onSearch:", query, "token:", token);
+    setFocusName(token);
+
+    if (selectedItemId) {
+      setItems((prev) =>
+        prev.map((it) => (it.id === selectedItemId ? { ...it, name: query } : it))
+      );
+    }
+  };
+
+>>>>>>> df076ec (stabilized version secrets removed)
   const onLoadItinerary = async (id: string) => {
     if (!user) {
       setAuthOpen(true);
@@ -240,10 +357,15 @@ export default function MapItineraryBuilder() {
     }
   };
 
+<<<<<<< HEAD
   // + で同カテゴリ行を追加
   const onAddItem = (day: DayIndex, type: EntryType) => {
     const newId = makeItemId(day, type);
 
+=======
+  const onAddItem = (day: DayIndex, type: EntryType) => {
+    const newId = makeItemId(day, type);
+>>>>>>> df076ec (stabilized version secrets removed)
     setItems((prev) => {
       const newItem: ItineraryItem = {
         id: newId,
@@ -269,7 +391,11 @@ export default function MapItineraryBuilder() {
     });
 
     setSelectedItemId(newId);
+<<<<<<< HEAD
     if (isMobile) setItineraryOpen(true);
+=======
+    setItineraryOpen(true);
+>>>>>>> df076ec (stabilized version secrets removed)
   };
 
   const saveButtonText = user
@@ -282,7 +408,10 @@ export default function MapItineraryBuilder() {
 
   return (
     <div className="h-dvh w-dvw overflow-hidden relative bg-neutral-950">
+<<<<<<< HEAD
       {/* 背景：地図 */}
+=======
+>>>>>>> df076ec (stabilized version secrets removed)
       <GoogleMapCanvas
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
@@ -301,16 +430,26 @@ export default function MapItineraryBuilder() {
       {/* 上中央 検索バー */}
       <MapSearchBar onSearch={onSearch} />
 
+<<<<<<< HEAD
       {/* 右上：Itinerary パネル表示ボタン */}
       <button
         onClick={() => setItineraryOpen((v) => !v)}
         className="absolute right-4 top-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
         title="旅程パネル"
+=======
+      <button
+        onClick={() => setItineraryOpen((v) => !v)}
+        className="absolute right-4 top-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
+        title="旅程"
+>>>>>>> df076ec (stabilized version secrets removed)
       >
         📝
       </button>
 
+<<<<<<< HEAD
       {/* 右オーバーレイ：Itinerary（LeftDrawerと同じ構造で右出し） */}
+=======
+>>>>>>> df076ec (stabilized version secrets removed)
       {itineraryOpen && (
         <div className="absolute inset-0 z-[60] pointer-events-auto">
           <div
@@ -341,7 +480,10 @@ export default function MapItineraryBuilder() {
         </div>
       )}
 
+<<<<<<< HEAD
       {/* 右下：チャットボタン ＋ ポップアップ */}
+=======
+>>>>>>> df076ec (stabilized version secrets removed)
       <button
         onClick={() => setChatOpen((v) => !v)}
         className="absolute right-4 bottom-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
@@ -351,12 +493,27 @@ export default function MapItineraryBuilder() {
       </button>
 
       {chatOpen && (
+<<<<<<< HEAD
         <div className="absolute right-4 bottom-16 z-[65] w-[420px] max-w-[92vw] h-[280px]">
+=======
+        <div className="absolute right-4 bottom-16 z-[65] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
+>>>>>>> df076ec (stabilized version secrets removed)
           <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
             <ChatCorner />
           </div>
         </div>
       )}
+<<<<<<< HEAD
+=======
+
+      {saveToast && (
+        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[80] pointer-events-none">
+          <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 shadow px-3 py-2 text-xs whitespace-pre-wrap text-neutral-100 backdrop-blur pointer-events-auto">
+            {saveToast}
+          </div>
+        </div>
+      )}
+>>>>>>> df076ec (stabilized version secrets removed)
 
       {/* トースト */}
       {saveToast && (

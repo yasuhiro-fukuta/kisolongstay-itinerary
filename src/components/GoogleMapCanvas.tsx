@@ -1,20 +1,22 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+<<<<<<< HEAD
 import { Loader } from "@googlemaps/js-api-loader";
+=======
+import { loadGoogleMaps } from "@/lib/googleMapsLoader";
+>>>>>>> df076ec (stabilized version secrets removed)
 
 export type PickedPlace = {
   placeId?: string;
   name?: string;
-
   website?: string;
   mapUrl?: string;
-
-  bookingUrl?: string;
-  airbnbUrl?: string;
-  rakutenUrl?: string;
-  viatorUrl?: string;
 };
+
+function extractQueryToken(raw?: string | null) {
+  return String(raw ?? "").split("|||")[0].trim();
+}
 
 export default function GoogleMapCanvas({
   selectedItemId,
@@ -27,36 +29,36 @@ export default function GoogleMapCanvas({
 }) {
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
+  const placesRef = useRef<google.maps.places.PlacesService | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
 
+<<<<<<< HEAD
   // 現在選択されている itemId を ref に保持
   const selectedIdRef = useRef<string | null>(selectedItemId);
+=======
+  const selectedIdRef = useRef<string | null>(selectedItemId);
+  const onPickPlaceRef = useRef(onPickPlace);
+
+>>>>>>> df076ec (stabilized version secrets removed)
   useEffect(() => {
     selectedIdRef.current = selectedItemId;
   }, [selectedItemId]);
 
-  // ① マップ初期化 ＋ マップ上のPOIクリック → 行に反映
   useEffect(() => {
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!apiKey || !divRef.current) return;
+    onPickPlaceRef.current = onPickPlace;
+  }, [onPickPlace]);
 
-    const loader = new Loader({
-      apiKey,
-      version: "weekly",
-      libraries: ["places"],
-      language: "ja",
-      region: "JP",
-    });
+  // 初期化
+  useEffect(() => {
+    if (!divRef.current) return;
 
-    let clickListener: google.maps.MapsEventListener | null = null;
+    loadGoogleMaps().then(() => {
+      if (mapRef.current) return;
 
-    loader.load().then(() => {
-      if (!divRef.current) return;
-
-      const center = { lat: 35.5739, lng: 137.6076 }; // 南木曽あたり
-      const map = new google.maps.Map(divRef.current, {
-        center,
+      const map = new google.maps.Map(divRef.current!, {
+        center: { lat: 35.5739, lng: 137.6076 },
         zoom: 12,
+        mapTypeId: "hybrid",
         clickableIcons: true,
         mapTypeControl: false,
         fullscreenControl: false,
@@ -67,21 +69,27 @@ export default function GoogleMapCanvas({
       });
 
       mapRef.current = map;
+      placesRef.current = new google.maps.places.PlacesService(map);
 
-      clickListener = map.addListener("click", (e: google.maps.MapMouseEvent) => {
-        const raw = e as any;
-        const placeId = raw.placeId as string | undefined;
+      // ★ POIクリック（InfoWindowは殺さない）
+      map.addListener("click", (e: any) => {
+        if (!e.placeId || !placesRef.current) return;
 
+<<<<<<< HEAD
         const itemId = selectedIdRef.current;
         if (!itemId) return; // 行未選択
         if (!placeId) return; // 背景クリック
 
         const service = new google.maps.places.PlacesService(map);
         service.getDetails(
+=======
+        placesRef.current.getDetails(
+>>>>>>> df076ec (stabilized version secrets removed)
           {
-            placeId,
+            placeId: e.placeId,
             fields: ["place_id", "name", "website", "url"],
           },
+<<<<<<< HEAD
           (place, status) => {
             if (status !== google.maps.places.PlacesServiceStatus.OK || !place) {
               console.error("Places API error:", status);
@@ -97,71 +105,49 @@ export default function GoogleMapCanvas({
               name: place.name ?? "名称未設定スポット",
               website: place.website ?? undefined,
               mapUrl: place.url ?? undefined,
+=======
+          (p, status) => {
+            if (!p || status !== "OK") return;
+
+            onPickPlaceRef.current(selectedIdRef.current, {
+              placeId: p.place_id ?? undefined,
+              name: p.name ?? "",
+              website: p.website ?? undefined,
+              mapUrl: p.url ?? undefined,
+>>>>>>> df076ec (stabilized version secrets removed)
             });
           }
         );
       });
     });
+  }, []);
 
-    return () => {
-      if (clickListener) clickListener.remove();
-    };
-  }, [onPickPlace]);
-
-  // ② focusName（検索バー or 左リスト） → その場所にフォーカスしてピンを出す
+  // 検索
   useEffect(() => {
-    if (!focusName || !mapRef.current) return;
+    const q = extractQueryToken(focusName);
+    if (!q || !placesRef.current || !mapRef.current) return;
 
-    const map = mapRef.current;
-    const service = new google.maps.places.PlacesService(map);
+    placesRef.current.textSearch({ query: q }, (results, status) => {
+      if (!results || status !== "OK") return;
+      const r = results[0];
+      if (!r.geometry?.location) return;
 
-    const request: google.maps.places.FindPlaceFromQueryRequest = {
-      query: focusName,
-      fields: ["place_id", "name", "geometry"],
-    };
+      mapRef.current!.panTo(r.geometry.location);
+      mapRef.current!.setZoom(15);
 
-    service.findPlaceFromQuery(request, (results, status) => {
-      if (
-        status !== google.maps.places.PlacesServiceStatus.OK ||
-        !results ||
-        !results[0]
-      ) {
-        console.error("findPlaceFromQuery error", status);
-        return;
-      }
-
-      const place = results[0];
-      if (!place.geometry || !place.geometry.location) return;
-
-      map.panTo(place.geometry.location);
-      map.setZoom(15);
-
-      if (markerRef.current) {
-        markerRef.current.setMap(null);
-      }
+      if (markerRef.current) markerRef.current.setMap(null);
       markerRef.current = new google.maps.Marker({
-        map,
-        position: place.geometry.location,
-        title: place.name,
+        map: mapRef.current!,
+        position: r.geometry.location,
+      });
+
+      onPickPlaceRef.current(selectedIdRef.current, {
+        placeId: r.place_id ?? undefined,
+        name: r.name ?? q,
+        mapUrl: (r as any).url ?? undefined,
       });
     });
   }, [focusName]);
 
-  const hasKey = Boolean(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
-
-  return (
-    <div className="relative h-full w-full">
-      <div ref={divRef} className="absolute inset-0" />
-      {!hasKey && (
-        <div className="absolute inset-0 grid place-items-center bg-neutral-100">
-          <div className="rounded-xl bg-white p-4 shadow">
-            <div className="font-semibold">Google Maps APIキーが未設定です</div>
-            <div className="text-sm text-neutral-600">
-              .env.local に NEXT_PUBLIC_GOOGLE_MAPS_API_KEY を入れてください
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div ref={divRef} className="absolute inset-0" />;
 }
