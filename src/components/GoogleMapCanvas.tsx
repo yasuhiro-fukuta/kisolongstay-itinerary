@@ -1,153 +1,348 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-<<<<<<< HEAD
-import { Loader } from "@googlemaps/js-api-loader";
-=======
-import { loadGoogleMaps } from "@/lib/googleMapsLoader";
->>>>>>> df076ec (stabilized version secrets removed)
+import { useEffect, useMemo, useState } from "react";
+import { onAuthStateChanged, type User } from "firebase/auth";
 
-export type PickedPlace = {
-  placeId?: string;
-  name?: string;
-  website?: string;
-  mapUrl?: string;
-};
+import GoogleMapCanvas, { type PickedPlace } from "@/components/GoogleMapCanvas";
+import MapSearchBar from "@/components/MapSearchBar";
+import LeftDrawer from "@/components/LeftDrawer";
+import ItineraryPanel from "@/components/ItineraryPanel";
+import ChatCorner from "@/components/ChatCorner";
+import AuthModal from "@/components/AuthModal";
 
-function extractQueryToken(raw?: string | null) {
-  return String(raw ?? "").split("|||")[0].trim();
+import { auth } from "@/lib/firebaseClient";
+import { makeInitialItems, type DayIndex, type EntryType, type ItineraryItem } from "@/lib/itinerary";
+import type { SavedPlace } from "@/lib/savedLists";
+import {
+  saveItinerary,
+  listItineraries,
+  loadItinerary,
+  type SavedItineraryMeta,
+} from "@/lib/itineraryStore";
+
+function yyyyMmDd(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function GoogleMapCanvas({
-  selectedItemId,
-  onPickPlace,
-  focusName,
-}: {
-  selectedItemId: string | null;
-  onPickPlace: (itemId: string | null, p: PickedPlace) => void;
-  focusName?: string | null;
-}) {
-  const divRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const placesRef = useRef<google.maps.places.PlacesService | null>(null);
-  const markerRef = useRef<google.maps.Marker | null>(null);
+function makeItemId(day: DayIndex, type: EntryType) {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${day}:${type}:${suffix}`;
+}
 
-<<<<<<< HEAD
-  // 現在選択されている itemId を ref に保持
-  const selectedIdRef = useRef<string | null>(selectedItemId);
-=======
-  const selectedIdRef = useRef<string | null>(selectedItemId);
-  const onPickPlaceRef = useRef(onPickPlace);
+function buildDetailFromPickedPlace(p: PickedPlace) {
+  const parts = [p.website, p.bookingUrl, p.airbnbUrl, p.rakutenUrl, p.viatorUrl]
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean);
+  return parts.join("\n");
+}
 
->>>>>>> df076ec (stabilized version secrets removed)
+function buildDetailFromSavedPlace(p: SavedPlace) {
+  const parts = [p.officialUrl, p.bookingUrl, p.airbnbUrl, p.rakutenUrl, p.viatorUrl]
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean);
+  return parts.join("\n");
+}
+
+// ★同じ検索語でも必ず発火させるため token 化
+function makeFocusToken(query: string) {
+  const nonce =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+  return `${query}|||${nonce}`;
+}
+
+export default function MapItineraryBuilder() {
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [items, setItems] = useState<ItineraryItem[]>(() => makeInitialItems());
+
+  const [dates, setDates] = useState<string[]>(() => {
+    const base = new Date();
+    return Array.from({ length: 5 }, (_, i) => {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      return yyyyMmDd(d);
+    });
+  });
+
+  const [focusName, setFocusName] = useState<string | null>(null);
+
+  // UI
+  const [itineraryOpen, setItineraryOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  // Auth & 保存
+  const [user, setUser] = useState<User | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+
+  const [savedList, setSavedList] = useState<SavedItineraryMeta[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [saveAfterLogin, setSaveAfterLogin] = useState(false);
+
+  const userLabel = useMemo(() => {
+    if (!user) return null;
+    return user.displayName || user.email || "ログインユーザー";
+  }, [user]);
+
   useEffect(() => {
-    selectedIdRef.current = selectedItemId;
-  }, [selectedItemId]);
-
-  useEffect(() => {
-    onPickPlaceRef.current = onPickPlace;
-  }, [onPickPlace]);
-
-  // 初期化
-  useEffect(() => {
-    if (!divRef.current) return;
-
-    loadGoogleMaps().then(() => {
-      if (mapRef.current) return;
-
-      const map = new google.maps.Map(divRef.current!, {
-        center: { lat: 35.5739, lng: 137.6076 },
-        zoom: 12,
-        mapTypeId: "hybrid",
-        clickableIcons: true,
-        mapTypeControl: false,
-        fullscreenControl: false,
-        streetViewControl: false,
-
-        // 航空写真 + ラベル
-        mapTypeId: google.maps.MapTypeId.HYBRID,
-      });
-
-      mapRef.current = map;
-      placesRef.current = new google.maps.places.PlacesService(map);
-
-      // ★ POIクリック（InfoWindowは殺さない）
-      map.addListener("click", (e: any) => {
-        if (!e.placeId || !placesRef.current) return;
-
-<<<<<<< HEAD
-        const itemId = selectedIdRef.current;
-        if (!itemId) return; // 行未選択
-        if (!placeId) return; // 背景クリック
-
-        const service = new google.maps.places.PlacesService(map);
-        service.getDetails(
-=======
-        placesRef.current.getDetails(
->>>>>>> df076ec (stabilized version secrets removed)
-          {
-            placeId: e.placeId,
-            fields: ["place_id", "name", "website", "url"],
-          },
-<<<<<<< HEAD
-          (place, status) => {
-            if (status !== google.maps.places.PlacesServiceStatus.OK || !place) {
-              console.error("Places API error:", status);
-              onPickPlace(itemId, {
-                placeId,
-                name: "名称未取得スポット",
-              });
-              return;
-            }
-
-            onPickPlace(itemId, {
-              placeId: place.place_id ?? placeId,
-              name: place.name ?? "名称未設定スポット",
-              website: place.website ?? undefined,
-              mapUrl: place.url ?? undefined,
-=======
-          (p, status) => {
-            if (!p || status !== "OK") return;
-
-            onPickPlaceRef.current(selectedIdRef.current, {
-              placeId: p.place_id ?? undefined,
-              name: p.name ?? "",
-              website: p.website ?? undefined,
-              mapUrl: p.url ?? undefined,
->>>>>>> df076ec (stabilized version secrets removed)
-            });
-          }
-        );
-      });
+    return onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        const list = await listItineraries(u.uid);
+        setSavedList(list);
+      } else {
+        setSavedList([]);
+      }
     });
   }, []);
 
-  // 検索
-  useEffect(() => {
-    const q = extractQueryToken(focusName);
-    if (!q || !placesRef.current || !mapRef.current) return;
+  const refreshList = async (u: User) => {
+    const list = await listItineraries(u.uid);
+    setSavedList(list);
+  };
 
-    placesRef.current.textSearch({ query: q }, (results, status) => {
-      if (!results || status !== "OK") return;
-      const r = results[0];
-      if (!r.geometry?.location) return;
+  const doSave = async (u: User) => {
+    if (saving) return;
+    setSaving(true);
+    setSaveToast(null);
+    try {
+      await saveItinerary(u.uid, dates, items);
+      await refreshList(u);
+      setSaveToast("保存しました");
+      setTimeout(() => setSaveToast(null), 1500);
+    } catch (e: any) {
+      setSaveToast("保存に失敗しました\n" + String(e?.message ?? e ?? ""));
+    } finally {
+      setSaving(false);
+    }
+  };
 
-      mapRef.current!.panTo(r.geometry.location);
-      mapRef.current!.setZoom(15);
+  const onSaveClick = async () => {
+    if (!user) {
+      setSaveAfterLogin(true);
+      setAuthOpen(true);
+      return;
+    }
+    await doSave(user);
+  };
 
-      if (markerRef.current) markerRef.current.setMap(null);
-      markerRef.current = new google.maps.Marker({
-        map: mapRef.current!,
-        position: r.geometry.location,
-      });
+  // ★未選択なら Day1 spot の先頭へ入れる（暴走防止にもなる）
+  const fallbackTargetId = () => items.find((i) => i.day === 1 && i.type === "spot")?.id ?? null;
 
-      onPickPlaceRef.current(selectedIdRef.current, {
-        placeId: r.place_id ?? undefined,
-        name: r.name ?? q,
-        mapUrl: (r as any).url ?? undefined,
-      });
+  const onPickPlace = (itemId: string | null, place: PickedPlace) => {
+    const targetId = itemId ?? selectedItemId ?? fallbackTargetId();
+    if (!targetId) return;
+
+    const detailCandidate = buildDetailFromPickedPlace(place);
+
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === targetId
+          ? {
+              ...it,
+              name: place.name ?? it.name,
+              mapUrl: place.mapUrl ?? it.mapUrl,
+              placeId: place.placeId ?? it.placeId,
+              detail: it.detail ? it.detail : detailCandidate,
+            }
+          : it
+      )
+    );
+
+    setSelectedItemId(targetId);
+  };
+
+  const onSelectFromDrawer = (p: SavedPlace) => {
+    setFocusName(makeFocusToken(p.name));
+
+    const targetId = selectedItemId ?? fallbackTargetId();
+    if (!targetId) return;
+
+    const detailCandidate = buildDetailFromSavedPlace(p);
+
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === targetId
+          ? {
+              ...it,
+              name: p.name ?? it.name,
+              mapUrl: p.mapUrl ?? it.mapUrl,
+              detail: it.detail ? it.detail : detailCandidate,
+            }
+          : it
+      )
+    );
+
+    setSelectedItemId(targetId);
+  };
+
+  const onSearch = (query: string) => {
+    const token = makeFocusToken(query);
+    setFocusName(token);
+
+    const targetId = selectedItemId ?? fallbackTargetId();
+    if (!targetId) return;
+
+    setItems((prev) =>
+      prev.map((it) => (it.id === targetId ? { ...it, name: query } : it))
+    );
+
+    setSelectedItemId(targetId);
+  };
+
+  const onLoadItinerary = async (id: string) => {
+    if (!user) {
+      setAuthOpen(true);
+      return;
+    }
+    try {
+      const loaded = await loadItinerary(user.uid, id);
+      if (loaded.dates?.length) setDates(loaded.dates);
+      setItems(loaded.items);
+      setSaveToast("旅程をロードしました");
+      setTimeout(() => setSaveToast(null), 1500);
+    } catch (e: any) {
+      setSaveToast("ロードに失敗しました\n" + String(e?.message ?? e ?? ""));
+    }
+  };
+
+  const onAddItem = (day: DayIndex, type: EntryType) => {
+    const newId = makeItemId(day, type);
+
+    setItems((prev) => {
+      const newItem: ItineraryItem = {
+        id: newId,
+        day,
+        type,
+        name: "",
+        detail: "",
+        price: "",
+        placeId: "",
+        mapUrl: "",
+      };
+
+      let insertAt = prev.length;
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].day === day && prev[i].type === type) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+
+      const next = [...prev];
+      next.splice(insertAt, 0, newItem);
+      return next;
     });
-  }, [focusName]);
 
-  return <div ref={divRef} className="absolute inset-0" />;
+    setSelectedItemId(newId);
+    setItineraryOpen(true);
+  };
+
+  const saveButtonText = user
+    ? saving
+      ? "保存中..."
+      : saveToast === "保存しました"
+        ? "保存しました"
+        : "保存"
+    : "会員登録して保存";
+
+  return (
+    <div className="h-dvh w-dvw overflow-hidden relative bg-neutral-950">
+      <GoogleMapCanvas
+        selectedItemId={selectedItemId}
+        onPickPlace={onPickPlace}
+        focusName={focusName}
+      />
+
+      <LeftDrawer
+        onSelectPlace={onSelectFromDrawer}
+        savedItineraries={savedList}
+        onLoadItinerary={onLoadItinerary}
+        userLabel={userLabel}
+        onRequestLogin={() => setAuthOpen(true)}
+      />
+
+      <MapSearchBar onSearch={onSearch} />
+
+      {/* 右上：旅程 */}
+      <button
+        onClick={() => setItineraryOpen((v) => !v)}
+        className="absolute right-4 top-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
+        title="旅程"
+      >
+        📝
+      </button>
+
+      {itineraryOpen && (
+        <div className="absolute inset-0 z-[60] pointer-events-auto">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setItineraryOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-[560px] max-w-[92vw] bg-neutral-950/95 backdrop-blur shadow-xl border-l border-neutral-800 overflow-auto">
+            <ItineraryPanel
+              items={items}
+              dates={dates}
+              selectedItemId={selectedItemId}
+              onSelectItem={(id) => setSelectedItemId(id)}
+              onChangeDate={(dayIdx0, v) =>
+                setDates((prev) => prev.map((x, i) => (i === dayIdx0 ? v : x)))
+              }
+              onChangeItem={(id, patch) =>
+                setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)))
+              }
+              onAddItem={onAddItem}
+              onSave={onSaveClick}
+              saveButtonText={saveButtonText}
+              saveDisabled={saving}
+              userLabel={userLabel}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 右下：チャット */}
+      <button
+        onClick={() => setChatOpen((v) => !v)}
+        className="absolute right-4 bottom-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
+        title="チャット"
+      >
+        💬
+      </button>
+
+      {chatOpen && (
+        <div className="absolute right-4 bottom-16 z-[65] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
+          <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
+            <ChatCorner />
+          </div>
+        </div>
+      )}
+
+      {saveToast && (
+        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[80] pointer-events-none">
+          <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 shadow px-3 py-2 text-xs whitespace-pre-wrap text-neutral-100 backdrop-blur pointer-events-auto">
+            {saveToast}
+          </div>
+        </div>
+      )}
+
+      <AuthModal
+        open={authOpen}
+        onClose={() => {
+          setAuthOpen(false);
+          setSaveAfterLogin(false);
+        }}
+        onSuccess={(u) => {
+          setAuthOpen(false);
+          refreshList(u);
+          if (saveAfterLogin) {
+            setSaveAfterLogin(false);
+            doSave(u);
+          }
+        }}
+      />
+    </div>
+  );
 }
