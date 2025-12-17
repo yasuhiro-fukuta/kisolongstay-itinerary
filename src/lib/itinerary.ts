@@ -13,7 +13,11 @@ export type ItineraryItem = {
   name: string;
   price: string;
 
+  // どれも「空でOK」：無かったら無いで文字だけ入れば良い
   mapUrl?: string;
+  hpUrl?: string;
+  otaUrl?: string;
+
   placeId?: string;
 
   // ★ルートはこれを使う（placeId には依存しない）
@@ -31,6 +35,8 @@ export function makeInitialItems(): ItineraryItem[] {
       name: "",
       price: "",
       mapUrl: "",
+      hpUrl: "",
+      otaUrl: "",
       placeId: "",
       lat: undefined,
       lng: undefined,

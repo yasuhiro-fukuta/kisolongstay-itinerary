@@ -102,6 +102,11 @@ export default function ItineraryPanel({
                 {list.map((v) => {
                   const checked = selectedItemId === v.id;
 
+                  const hasLinks =
+                    !!String(v.mapUrl ?? "").trim() ||
+                    !!String((v as any).hpUrl ?? "").trim() ||
+                    !!String((v as any).otaUrl ?? "").trim();
+
                   return (
                     <div
                       key={v.id}
@@ -113,7 +118,7 @@ export default function ItineraryPanel({
                       ].join(" ")}
                       onClick={() => onSelectItem(v.id)}
                     >
-                      {/* radio + name + price (横並び) */}
+                      {/* radio + name + price */}
                       <div className="flex items-center gap-2">
                         <input
                           type="radio"
@@ -138,11 +143,42 @@ export default function ItineraryPanel({
                         />
                       </div>
 
-                      {v.mapUrl && (
-                        <div className="mt-2 text-xs text-neutral-300">
-                          <a className="underline" href={v.mapUrl} target="_blank" rel="noreferrer">
-                            GoogleMaps
-                          </a>
+                      {/* links: Map / HP / OTA (無ければ何も出さない) */}
+                      {hasLinks && (
+                        <div className="mt-2 flex items-center gap-3 text-xs text-neutral-300">
+                          {String(v.mapUrl ?? "").trim() && (
+                            <a
+                              className="underline"
+                              href={String(v.mapUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Map
+                            </a>
+                          )}
+                          {String((v as any).hpUrl ?? "").trim() && (
+                            <a
+                              className="underline"
+                              href={String((v as any).hpUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              HP
+                            </a>
+                          )}
+                          {String((v as any).otaUrl ?? "").trim() && (
+                            <a
+                              className="underline"
+                              href={String((v as any).otaUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              OTA
+                            </a>
+                          )}
                         </div>
                       )}
                     </div>

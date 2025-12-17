@@ -77,7 +77,11 @@ export async function saveItinerary(uid: string, dates: string[], items: Itinera
       type: "spot",
       name: String(x.name ?? ""),
       price: String(x.price ?? ""),
+
       mapUrl: String(x.mapUrl ?? ""),
+      hpUrl: String((x as any).hpUrl ?? ""),
+      otaUrl: String((x as any).otaUrl ?? ""),
+
       placeId: String(x.placeId ?? ""),
     };
 
@@ -86,7 +90,7 @@ export async function saveItinerary(uid: string, dates: string[], items: Itinera
   });
 
   const ref = await addDoc(collection(db, "itineraries"), {
-    schemaVersion: 3,
+    schemaVersion: 4,
     uid,
     title,
     savedAtMs,
@@ -140,7 +144,11 @@ export async function loadItinerary(
           type: "spot",
           name: String(raw?.name ?? ""),
           price: String(raw?.price ?? ""),
+
           mapUrl: String(raw?.mapUrl ?? ""),
+          hpUrl: String(raw?.hpUrl ?? ""),
+          otaUrl: String(raw?.otaUrl ?? ""),
+
           placeId: String(raw?.placeId ?? ""),
           lat: numOrUndef(raw?.lat),
           lng: numOrUndef(raw?.lng),

@@ -13,13 +13,21 @@ import AuthModal from "@/components/AuthModal";
 
 import { auth } from "@/lib/firebaseClient";
 import { makeInitialItems, type DayIndex, type ItineraryItem } from "@/lib/itinerary";
-import type { SavedPlace } from "@/lib/savedLists";
 import {
   saveItinerary,
   listItineraries,
   loadItinerary,
   type SavedItineraryMeta,
 } from "@/lib/itineraryStore";
+
+import {
+  fetchLeftMenuItems,
+  buildCategoryOrder,
+  groupLeftMenuByCategory,
+  type LeftMenuItem,
+} from "@/lib/leftMenu";
+
+import { fetchSampleTourRows } from "@/lib/sampleTour";
 
 function yyyyMmDd(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -68,6 +76,13 @@ async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng
   return null;
 }
 
+const SAMPLE_TOUR_NAMES = [
+  "春の中山道北上ツアー",
+  "夏の渓谷ずぶ濡れツアー",
+  "秋の中山道南下ツアー",
+  "冬の温泉ぬくぬくツアー",
+] as const;
+
 export default function MapItineraryBuilder() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>(() => makeInitialItems());
@@ -90,7 +105,13 @@ export default function MapItineraryBuilder() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [saveAfterLogin, setSaveAfterLogin] = useState(false);
 
+  // left_menu.csv
+  const [menuItems, setMenuItems] = useState<LeftMenuItem[]>([]);
+  const menuLoadedRef = useRef(false);
+
+  // request guards
   const resolvingRef = useRef(0);
+  const sampleLoadRef = useRef(0);
 
   const userLabel = useMemo(() => {
     if (!user) return null;
@@ -108,6 +129,31 @@ export default function MapItineraryBuilder() {
       }
     });
   }, []);
+
+  // Load left_menu.csv once
+  useEffect(() => {
+    if (menuLoadedRef.current) return;
+    menuLoadedRef.current = true;
+
+    fetchLeftMenuItems()
+      .then((list) => setMenuItems(list))
+      .catch((e: any) => {
+        console.error("[left_menu.csv] load failed:", e);
+        setSaveToast("left_menu.csv の読み込みに失敗しました\n" + String(e?.message ?? e ?? ""));
+        setTimeout(() => setSaveToast(null), 2500);
+      });
+  }, []);
+
+  const menuCategories = useMemo(() => buildCategoryOrder(menuItems), [menuItems]);
+  const menuByCategory = useMemo(
+    () => groupLeftMenuByCategory(menuItems, menuCategories),
+    [menuItems, menuCategories]
+  );
+  const menuById = useMemo(() => {
+    const m = new Map<string, LeftMenuItem>();
+    for (const it of menuItems) m.set(String(it.menuid), it);
+    return m;
+  }, [menuItems]);
 
   const refreshList = async (u: User) => {
     const list = await listItineraries(u.uid);
@@ -152,6 +198,9 @@ export default function MapItineraryBuilder() {
               ...it,
               name: place.name ?? it.name,
               mapUrl: place.mapUrl ?? it.mapUrl,
+              // 地図から拾った場合、HP/OTAは不明なのでクリア（残すと事故る）
+              hpUrl: "",
+              otaUrl: "",
               placeId: place.placeId ?? it.placeId,
               lat: typeof place.lat === "number" ? place.lat : it.lat,
               lng: typeof place.lng === "number" ? place.lng : it.lng,
@@ -163,18 +212,21 @@ export default function MapItineraryBuilder() {
     setSelectedItemId(targetId);
   };
 
-  const onSelectFromDrawer = async (p: SavedPlace) => {
+  // ★左メニュー（CSV）からの選択
+  const onSelectFromDrawer = async (p: LeftMenuItem) => {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
 
-    // まず UI（右リスト）を即更新：最低限 name/mapUrl は確定で入れる
+    // 先にUI反映（Map/HP/OTA が空でもOK。無効扱いしない）
     setItems((prev) =>
       prev.map((it) =>
         it.id === targetId
           ? {
               ...it,
-              name: p.name ?? it.name,
-              mapUrl: p.mapUrl ?? it.mapUrl,
+              name: p.title ?? it.name,
+              mapUrl: p.mapUrl ?? "",
+              hpUrl: p.hpUrl ?? "",
+              otaUrl: p.otaUrl ?? "",
               placeId: "",
               lat: undefined,
               lng: undefined,
@@ -184,14 +236,18 @@ export default function MapItineraryBuilder() {
     );
     setSelectedItemId(targetId);
 
-    // mapUrl を resolve して lat/lng を確定（これが “同名別ヒット” を防ぐ）
+    const mapUrl = String(p.mapUrl ?? "").trim();
+    if (!mapUrl) {
+      // Mapが無いサービスは「文字が入ればOK」なので、地図を勝手に動かさない
+      return;
+    }
+
     const myReq = ++resolvingRef.current;
-    const loc = await resolveMapUrlToLatLng(p.mapUrl);
-    if (myReq !== resolvingRef.current) return; // stale
+    const loc = await resolveMapUrlToLatLng(mapUrl);
+    if (myReq !== resolvingRef.current) return;
 
     if (!loc) {
-      // 最終手段：名前検索（ただし mapUrl は正として残す）
-      setFocus({ kind: "query", query: p.name, nonce: makeNonce() });
+      // ここで名前検索フォールバックをしない（同名別ヒット事故を増やす）
       return;
     }
 
@@ -207,7 +263,6 @@ export default function MapItineraryBuilder() {
       )
     );
 
-    // 地図は lat/lng に確実に寄せる（ピンも刺さる）
     setFocus({ kind: "latlng", lat: loc.lat, lng: loc.lng, nonce: makeNonce() });
   };
 
@@ -221,7 +276,16 @@ export default function MapItineraryBuilder() {
     setItems((prev) =>
       prev.map((it) =>
         it.id === targetId
-          ? { ...it, name: q, mapUrl: "", placeId: "", lat: undefined, lng: undefined }
+          ? {
+              ...it,
+              name: q,
+              mapUrl: "",
+              hpUrl: "",
+              otaUrl: "",
+              placeId: "",
+              lat: undefined,
+              lng: undefined,
+            }
           : it
       )
     );
@@ -260,6 +324,8 @@ export default function MapItineraryBuilder() {
         name: "",
         price: "",
         mapUrl: "",
+        hpUrl: "",
+        otaUrl: "",
         placeId: "",
         lat: undefined,
         lng: undefined,
@@ -282,6 +348,146 @@ export default function MapItineraryBuilder() {
     setItineraryOpen(true);
   };
 
+  // ★サンプルツアーロード（sampletour.csv → menuid → left_menu.csv）
+  const onLoadSampleTour = async (tourName: string) => {
+    if (menuItems.length === 0) {
+      setSaveToast("left_menu.csv が未読み込みです（/public/data/left_menu.csv を確認）");
+      setTimeout(() => setSaveToast(null), 2500);
+      return;
+    }
+
+    const myReq = ++sampleLoadRef.current;
+    setItineraryOpen(true);
+    setSaveToast(null);
+
+    try {
+      const rows = await fetchSampleTourRows();
+      if (myReq !== sampleLoadRef.current) return;
+
+      const plan = rows.filter((r) => r.tour === tourName);
+      if (plan.length === 0) {
+        setSaveToast(`sampletour.csv に「${tourName}」の行がありません`);
+        setTimeout(() => setSaveToast(null), 2500);
+        return;
+      }
+
+      // 1) dayごとの必要行数（rownum最大）を計算（足りなければ補う）
+      const need: Record<DayIndex, number> = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
+      for (const r of plan) {
+        need[r.day] = Math.max(need[r.day], r.rownum);
+      }
+
+      // 2) 空の旅程を dayごとに必要数作る
+      const byDay: Record<DayIndex, ItineraryItem[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+      for (const day of [1, 2, 3, 4, 5] as const) {
+        for (let i = 0; i < need[day]; i++) {
+          byDay[day].push({
+            id: makeItemId(day),
+            day,
+            type: "spot",
+            name: "",
+            price: "",
+            mapUrl: "",
+            hpUrl: "",
+            otaUrl: "",
+            placeId: "",
+            lat: undefined,
+            lng: undefined,
+          });
+        }
+      }
+
+      // 3) planを menuid で left_menu.csv から引いて埋める（Map/HP/OTA空でもOK）
+      for (const r of plan) {
+        const idx = r.rownum - 1;
+        if (idx < 0) continue;
+
+        while (byDay[r.day].length <= idx) {
+          // 念のため（need計算済みだが、変なデータでも落ちないように）
+          byDay[r.day].push({
+            id: makeItemId(r.day),
+            day: r.day,
+            type: "spot",
+            name: "",
+            price: "",
+            mapUrl: "",
+            hpUrl: "",
+            otaUrl: "",
+            placeId: "",
+            lat: undefined,
+            lng: undefined,
+          });
+        }
+
+        const src = menuById.get(String(r.menuid));
+        if (!src) {
+          // 見つからない menuid は空のまま（落とさない）
+          continue;
+        }
+
+        byDay[r.day][idx] = {
+          ...byDay[r.day][idx],
+          name: src.title ?? "",
+          mapUrl: src.mapUrl ?? "",
+          hpUrl: src.hpUrl ?? "",
+          otaUrl: src.otaUrl ?? "",
+          placeId: "",
+          lat: undefined,
+          lng: undefined,
+        };
+      }
+
+      const nextItems = [...byDay[1], ...byDay[2], ...byDay[3], ...byDay[4], ...byDay[5]];
+      setItems(nextItems);
+
+      const firstNonEmpty = nextItems.find((x) => String(x.name ?? "").trim())?.id ?? nextItems[0]?.id ?? null;
+      setSelectedItemId(firstNonEmpty);
+
+      // 4) mapUrlがある行だけ lat/lng を resolve（並列は控えめに）
+      const urls = Array.from(
+        new Set(nextItems.map((x) => String(x.mapUrl ?? "").trim()).filter(Boolean))
+      );
+
+      if (urls.length) {
+        const resolved = new Map<string, { lat: number; lng: number }>();
+
+        const concurrency = 5;
+        let cursor = 0;
+
+        const worker = async () => {
+          while (cursor < urls.length) {
+            const u = urls[cursor++];
+            const loc = await resolveMapUrlToLatLng(u);
+            if (myReq !== sampleLoadRef.current) return;
+            if (loc) resolved.set(u, loc);
+          }
+        };
+
+        await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+        if (myReq !== sampleLoadRef.current) return;
+
+        setItems((prev) =>
+          prev.map((it) => {
+            const u = String(it.mapUrl ?? "").trim();
+            if (!u) return it;
+            const loc = resolved.get(u);
+            return loc ? { ...it, lat: loc.lat, lng: loc.lng } : it;
+          })
+        );
+
+        const firstLoc = urls.map((u) => resolved.get(u)).find(Boolean);
+        if (firstLoc) {
+          setFocus({ kind: "latlng", lat: firstLoc.lat, lng: firstLoc.lng, nonce: makeNonce() });
+        }
+      }
+
+      setSaveToast(`サンプルツアーをロードしました\n${tourName}`);
+      setTimeout(() => setSaveToast(null), 1500);
+    } catch (e: any) {
+      setSaveToast("サンプルツアーのロードに失敗しました\n" + String(e?.message ?? e ?? ""));
+    }
+  };
+
   const saveButtonText = user
     ? saving
       ? "保存中..."
@@ -300,7 +506,11 @@ export default function MapItineraryBuilder() {
       />
 
       <LeftDrawer
-        onSelectPlace={onSelectFromDrawer}
+        menuCategories={menuCategories}
+        menuByCategory={menuByCategory}
+        onSelectMenuItem={onSelectFromDrawer}
+        sampleTourNames={[...SAMPLE_TOUR_NAMES]}
+        onLoadSampleTour={onLoadSampleTour}
         savedItineraries={savedList}
         onLoadItinerary={onLoadItinerary}
         userLabel={userLabel}
