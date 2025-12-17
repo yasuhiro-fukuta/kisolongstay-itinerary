@@ -10,13 +10,7 @@ import {
   doc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import {
-  ENTRY_TYPES,
-  makeInitialItems,
-  type DayIndex,
-  type EntryType,
-  type ItineraryItem,
-} from "@/lib/itinerary";
+import { makeInitialItems, type DayIndex, type ItineraryItem } from "@/lib/itinerary";
 
 export type SavedItineraryMeta = {
   id: string;
@@ -34,34 +28,13 @@ function buildTitle(date: Date) {
   )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const typeOrder = new Map<EntryType, number>(ENTRY_TYPES.map((t, i) => [t.key, i]));
-
-// ★ここが重要：Set<EntryType> に型を固定する
-const entryTypeSet: Set<EntryType> = new Set(ENTRY_TYPES.map((t) => t.key as EntryType));
-
-function isEntryType(v: unknown): v is EntryType {
-  return typeof v === "string" && entryTypeSet.has(v as EntryType);
-}
-
-function slotToType(slot: string): EntryType {
-  if (slot === "checkin") return "checkin";
-  if (slot === "checkout") return "move";
-  if (slot === "breakfast" || slot === "lunch" || slot === "dinner") return "food";
-  if (slot === "am" || slot === "pm" || slot === "night") return "activity";
-  return "spot";
-}
-
 function normalizeDay(v: unknown): DayIndex | null {
   const n = Number(v);
   if (n === 1 || n === 2 || n === 3 || n === 4 || n === 5) return n;
   return null;
 }
 
-export async function saveItinerary(
-  uid: string,
-  dates: string[],
-  items: ItineraryItem[]
-) {
+export async function saveItinerary(uid: string, dates: string[], items: ItineraryItem[]) {
   const now = new Date();
   const title = buildTitle(now);
   const savedAtMs = now.getTime();
@@ -69,16 +42,16 @@ export async function saveItinerary(
   const safeItems = items.map((x) => ({
     id: String(x.id),
     day: x.day,
-    type: x.type,
+    type: "spot",
     name: String(x.name ?? ""),
-    detail: String(x.detail ?? ""),
     price: String(x.price ?? ""),
     placeId: String(x.placeId ?? ""),
     mapUrl: String(x.mapUrl ?? ""),
+    detail: String((x as any).detail ?? ""),
   }));
 
   const ref = await addDoc(collection(db, "itineraries"), {
-    schemaVersion: 2,
+    schemaVersion: 3,
     uid,
     title,
     savedAtMs,
@@ -120,97 +93,97 @@ export async function loadItinerary(
 
   const dates = Array.isArray(data?.dates) ? data.dates.map(String) : [];
 
-  // ===== v2: items =====
+  // v3/v2: items
   if (Array.isArray(data?.items)) {
     const parsed: ItineraryItem[] = data.items
       .map((raw: any) => {
         const day = normalizeDay(raw?.day);
-        const type = raw?.type;
-
-        if (!day || !isEntryType(type)) return null;
+        if (!day) return null;
 
         return {
-          id: String(raw?.id ?? `${day}:${type}:${Math.random().toString(36).slice(2)}`),
+          id: String(raw?.id ?? `${day}:spot:${Math.random().toString(36).slice(2)}`),
           day,
-          type,
+          type: "spot",
           name: String(raw?.name ?? ""),
-          detail: String(raw?.detail ?? ""),
-          price: String(raw?.price ?? ""),
+          price: String(raw?.price ?? raw?.priceText ?? ""),
           placeId: String(raw?.placeId ?? ""),
           mapUrl: String(raw?.mapUrl ?? ""),
+          detail: String(raw?.detail ?? ""),
         } satisfies ItineraryItem;
       })
       .filter(Boolean) as ItineraryItem[];
 
-    return { dates, items: parsed.length ? parsed : makeInitialItems() };
+    // 各Dayに最低1行は確保
+    const ensured = [...parsed];
+    for (const day of [1, 2, 3, 4, 5] as const) {
+      if (!ensured.some((x) => x.day === day)) {
+        ensured.push({
+          id: `${day}:spot:0`,
+          day,
+          type: "spot",
+          name: "",
+          price: "",
+          placeId: "",
+          mapUrl: "",
+          detail: "",
+        });
+      }
+    }
+
+    ensured.sort((a, b) => {
+      const d = a.day - b.day;
+      if (d) return d;
+      return a.id.localeCompare(b.id);
+    });
+
+    return { dates, items: ensured.length ? ensured : makeInitialItems() };
   }
 
-  // ===== v1 fallback: rows -> items（ざっくり変換）=====
+  // v1 fallback: rows -> items（ざっくりspot化）
   if (Array.isArray(data?.rows)) {
     const counters: Record<string, number> = {};
     const items: ItineraryItem[] = [];
 
     for (const r of data.rows ?? []) {
       const rowId = String(r?.id ?? "");
-      const [dayStr, slot] = rowId.split(":");
+      const [dayStr] = rowId.split(":");
       const day = normalizeDay(dayStr);
       if (!day) continue;
 
-      const type = slotToType(String(slot ?? ""));
-      const key = `${day}:${type}`;
+      const key = `${day}:spot`;
       const idx = counters[key] ?? 0;
       counters[key] = idx + 1;
-
-      const links = [
-        r?.hpUrl,
-        r?.bookingUrl,
-        r?.airbnbUrl,
-        r?.rakutenUrl,
-        r?.viatorUrl,
-        r?.mapUrl,
-      ]
-        .map((x: any) => String(x ?? "").trim())
-        .filter(Boolean);
 
       items.push({
         id: `${key}:${idx}`,
         day,
-        type,
+        type: "spot",
         name: String(r?.name ?? ""),
-        detail: links.join("\n"),
         price: String(r?.price ?? ""),
         placeId: String(r?.placeId ?? ""),
         mapUrl: String(r?.mapUrl ?? ""),
+        detail: "",
       });
     }
 
-    // 各Day×各カテゴリに最低1行は確保
     for (const day of [1, 2, 3, 4, 5] as const) {
-      for (const t of ENTRY_TYPES) {
-        if (!items.some((x) => x.day === day && x.type === t.key)) {
-          const key = `${day}:${t.key}`;
-          const idx = counters[key] ?? 0;
-          counters[key] = idx + 1;
-          items.push({
-            id: `${key}:${idx}`,
-            day,
-            type: t.key,
-            name: "",
-            detail: "",
-            price: "",
-            placeId: "",
-            mapUrl: "",
-          });
-        }
+      if (!items.some((x) => x.day === day)) {
+        items.push({
+          id: `${day}:spot:0`,
+          day,
+          type: "spot",
+          name: "",
+          price: "",
+          placeId: "",
+          mapUrl: "",
+          detail: "",
+        });
       }
     }
 
     items.sort((a, b) => {
       const d = a.day - b.day;
       if (d) return d;
-      const ta = typeOrder.get(a.type) ?? 999;
-      const tb = typeOrder.get(b.type) ?? 999;
-      if (ta !== tb) return ta - tb;
       return a.id.localeCompare(b.id);
     });
 

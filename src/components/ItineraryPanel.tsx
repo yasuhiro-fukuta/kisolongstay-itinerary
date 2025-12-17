@@ -1,32 +1,49 @@
+// src/components/ItineraryPanel.tsx
 "use client";
 
-import { ENTRY_TYPES, type DayIndex, type EntryType, type ItineraryItem } from "@/lib/itinerary";
+import type { DayIndex, ItineraryItem } from "@/lib/itinerary";
+
+function dayColor(day: number) {
+  const colors = ["#3b82f6", "#22c55e", "#eab308", "#ef4444"];
+  return colors[(day - 1) % colors.length];
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const h = hex.replace("#", "").trim();
+  const v = h.length === 3
+    ? h.split("").map((c) => c + c).join("")
+    : h;
+  const n = parseInt(v, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 export default function ItineraryPanel({
   items,
   dates,
+  startDate,
+  onChangeStartDate,
   selectedItemId,
   onSelectItem,
   onChangeItem,
   onAddItem,
-  onChangeDate,
   onSave,
   saveButtonText,
   saveDisabled,
   userLabel,
 }: {
   items: ItineraryItem[];
-  dates: string[];
+  dates: string[]; // Day1..Day5 表示用（自動）
+  startDate: string; // 出発日
+  onChangeStartDate: (v: string) => void;
+
   selectedItemId: string | null;
-
   onSelectItem: (id: string) => void;
-  onChangeItem: (
-    id: string,
-    patch: Partial<Pick<ItineraryItem, "name" | "detail" | "price" | "mapUrl" | "placeId">>
-  ) => void;
-  onAddItem: (day: DayIndex, type: EntryType) => void;
 
-  onChangeDate: (dayIdx0: number, v: string) => void;
+  onChangeItem: (id: string, patch: Partial<Pick<ItineraryItem, "name" | "price">>) => void;
+  onAddItem: (day: DayIndex) => void;
 
   onSave: () => void;
   saveButtonText: string;
@@ -41,6 +58,7 @@ export default function ItineraryPanel({
           <div className="font-semibold truncate">
             木曽南部ロングステイ Itinerary（mobile v2）
           </div>
+
           {userLabel ? (
             <div className="text-xs text-neutral-400 truncate">
               ログイン中：{userLabel}
@@ -61,121 +79,119 @@ export default function ItineraryPanel({
         </button>
       </div>
 
-      {/* Body（スクロールは外側のコンテナに任せる） */}
-      <div className="p-3 space-y-6">
-        {([1, 2, 3, 4, 5] as const).map((day, idx0) => (
-          <section key={day} className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="font-semibold">Day{day}</div>
-              <input
-                type="date"
-                value={dates[idx0] ?? ""}
-                onChange={(e) => onChangeDate(idx0, e.target.value)}
-                className="ml-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
-              />
-            </div>
+      {/* 出発日 */}
+      <div className="px-3 py-2 border-b border-neutral-800 flex items-center gap-3">
+        <div className="text-xs text-neutral-300 shrink-0">出発日</div>
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => onChangeStartDate(e.target.value)}
+          className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
+        />
+        <div className="ml-auto text-[11px] text-neutral-500">
+          Day2以降は +1日で自動
+        </div>
+      </div>
 
-            <div className="space-y-3">
-              {ENTRY_TYPES.map((t) => {
-                const list = items.filter((x) => x.day === day && x.type === t.key);
+      {/* Body */}
+      <div className="p-3 space-y-3">
+        {([1, 2, 3, 4, 5] as const).map((day, idx0) => {
+          const color = dayColor(day);
+          const dayItems = items.filter((x) => x.day === day);
 
-                return (
-                  <div
-                    key={t.key}
-                    className="rounded-2xl border border-neutral-800 bg-neutral-900/35 overflow-hidden"
-                  >
-                    <div className="px-3 py-2 border-b border-neutral-800 flex items-center justify-between">
-                      <div className="text-sm font-semibold">{t.label}</div>
-                      <button
-                        onClick={() => onAddItem(day, t.key)}
-                        className="rounded-lg px-2 py-1 text-xs bg-neutral-100 text-neutral-900"
-                        title={`${t.label}を追加`}
-                      >
-                        ＋
-                      </button>
-                    </div>
+          return (
+            <section
+              key={day}
+              className="rounded-2xl border overflow-hidden"
+              style={{
+                borderColor: hexToRgba(color, 0.9),
+                backgroundColor: hexToRgba(color, 0.06),
+              }}
+            >
+              {/* Day header row: Day / date / + */}
+              <div
+                className="px-3 py-2 flex items-center gap-2 border-b"
+                style={{ borderColor: hexToRgba(color, 0.25) }}
+              >
+                <div className="font-semibold">Day{day}</div>
 
-                    <div className="p-3 space-y-3">
-                      {list.map((v, i) => {
-                        const checked = selectedItemId === v.id;
-                        const badge = list.length >= 2 ? `${t.label} ${i + 1}` : t.label;
+                <div className="text-xs text-neutral-200/90 rounded-md px-2 py-0.5 border border-neutral-700/60 bg-neutral-950/40">
+                  {dates[idx0] ?? ""}
+                </div>
 
-                        return (
-                          <div
-                            key={v.id}
-                            className={[
-                              "rounded-xl border p-3",
-                              checked
-                                ? "border-neutral-100 bg-neutral-950/60"
-                                : "border-neutral-800 bg-neutral-950/30",
-                            ].join(" ")}
-                            onClick={() => onSelectItem(v.id)}
+                <button
+                  onClick={() => onAddItem(day)}
+                  className="ml-auto rounded-lg px-2 py-1 text-xs bg-neutral-100 text-neutral-900"
+                  title="行を追加"
+                >
+                  ＋
+                </button>
+              </div>
+
+              <div className="p-3 space-y-2">
+                {dayItems.map((v) => {
+                  const checked = selectedItemId === v.id;
+
+                  return (
+                    <div
+                      key={v.id}
+                      className={[
+                        "rounded-xl border p-2",
+                        checked
+                          ? "border-neutral-100 bg-neutral-950/60"
+                          : "border-neutral-800 bg-neutral-950/30",
+                      ].join(" ")}
+                      onClick={() => onSelectItem(v.id)}
+                    >
+                      {/* radio + name + price (横並び) */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="itemSelect"
+                          checked={checked}
+                          onChange={() => onSelectItem(v.id)}
+                          title="この行に地図/メニューから入力"
+                        />
+
+                        <input
+                          value={v.name}
+                          onChange={(e) => onChangeItem(v.id, { name: e.target.value })}
+                          placeholder="スポット/サービス名"
+                          className="flex-1 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
+                        />
+
+                        <input
+                          value={v.price}
+                          onChange={(e) => onChangeItem(v.id, { price: e.target.value })}
+                          placeholder="金額"
+                          className="w-[92px] rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 text-right"
+                        />
+                      </div>
+
+                      {v.mapUrl && (
+                        <div className="mt-1 pl-6 text-xs text-neutral-300">
+                          <a
+                            className="underline"
+                            href={v.mapUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="radio"
-                                name="itemSelect"
-                                checked={checked}
-                                onChange={() => onSelectItem(v.id)}
-                                title="この行に地図/メニューから入力"
-                              />
-                              <div className="text-sm font-medium">{badge}</div>
-                            </div>
-
-                            {/* タイトルの下に 3列だけ */}
-                            <div className="mt-2 grid grid-cols-1 gap-2">
-                              <input
-                                value={v.name}
-                                onChange={(e) =>
-                                  onChangeItem(v.id, { name: e.target.value })
-                                }
-                                placeholder="スポット/サービス名"
-                                className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
-                              />
-                              <input
-                                value={v.detail}
-                                onChange={(e) =>
-                                  onChangeItem(v.id, { detail: e.target.value })
-                                }
-                                placeholder="詳細（URL/メモなど）"
-                                className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
-                              />
-                              <input
-                                value={v.price}
-                                onChange={(e) =>
-                                  onChangeItem(v.id, { price: e.target.value })
-                                }
-                                placeholder="金額"
-                                className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
-                              />
-                            </div>
-
-                            {v.mapUrl && (
-                              <div className="mt-2 text-xs text-neutral-300">
-                                <a
-                                  className="underline"
-                                  href={v.mapUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  Google Maps
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                            GoogleMaps
+                          </a>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       <div className="px-3 pb-3 text-xs text-neutral-400">
-        使い方：入力したい行を選択 → 地図クリック or 左メニュー選択 → 名前/リンクが入ります。
+        使い方：入力したい行を選択 → 地図クリック or 左メニュー選択 → 行に反映されます。
       </div>
     </div>
   );

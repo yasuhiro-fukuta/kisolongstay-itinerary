@@ -1,210 +1,468 @@
 // src/lib/savedLists.ts
 
-export type CategoryKey = "move" | "spot" | "activity" | "food" | "stay" | "shipping";
+export type CategoryKey =
+  | "tsumago"
+  | "tadachi"
+  | "araragi"
+  | "nagiso"
+  | "yogawa"
+  | "kakizore"
+  | "atera"
+  | "nojiri"
+  | "suhara";
+
+export type PlaceKind =
+  | "cafe"
+  | "brewery"
+  | "trail"
+  | "gorge"
+  | "river"
+  | "restaurant"
+  | "lunch"
+  | "dinner"
+  | "hotel"
+  | "street"
+  | "train"
+  | "bridge"
+  | "camp"
+  | "museum"
+  | "cycle"
+  | "onsen"
+  | "goods"
+  | "fishing"
+  | "other";
 
 export type SavedPlace = {
   id: string;
   name: string;
-  placeId?: string;      // 必要になったら入れる
-  mapUrl?: string;       // Googleマップ or Webサイト
-  imageUrl?: string;     // サムネイル
-  officialUrl?: string;  // 公式HP
-  bookingUrl?: string;   // Booking.com など
+
+  // Google Map URL（今のアプリの動線はこれでOK）
+  mapUrl?: string;
+
+  // 画像（public/img に置いて /img/... で参照）
+  imageUrl?: string;
+
+  // アイコン表示用（未指定なら id から推測する）
+  kind?: PlaceKind;
+
+  // 将来拡張用（必要になったら）
+  officialUrl?: string;
+  bookingUrl?: string;
   airbnbUrl?: string;
   rakutenUrl?: string;
   viatorUrl?: string;
 };
 
 export const CATEGORIES: { key: CategoryKey; label: string }[] = [
-  { key: "move",     label: "移動" },
-  { key: "spot",     label: "観光スポット" },
-  { key: "activity", label: "アクティビティ" },
-  { key: "food",     label: "外食" },
-  { key: "stay",     label: "宿" },
-  { key: "shipping", label: "荷物配送" },
+  { key: "tsumago", label: "妻籠" },
+  { key: "tadachi", label: "田立" },
+  { key: "araragi", label: "蘭" },
+  { key: "nagiso", label: "南木曽" },
+  { key: "yogawa", label: "与川" },
+  { key: "kakizore", label: "柿其" },
+  { key: "atera", label: "阿寺" },
+  { key: "nojiri", label: "野尻" },
+  { key: "suhara", label: "須原" },
 ];
 
+function img(name: string) {
+  // 画像は public/img/ に置く想定
+  return `/img/${name}`;
+}
+
 export const SAVED_PLACES: Record<CategoryKey, SavedPlace[]> = {
-  // ========= 移動 =========
-  move: [
+  // ========= 妻籠 =========
+  tsumago: [
     {
-      id: "ebike-reservation",
-      name: "South Kiso Long Trail E-Bike Reservation",
-      mapUrl: "https://preview.studio.site/live/XKOk192Ra4/en",
-      imageUrl: "/img/move-ebike-reservation.jpg",
+      id: "tsumago-cafe-kojitsu",
+      name: "好日珈琲",
+      mapUrl: "https://maps.app.goo.gl/qdLkEfSfSPmrQJxz6",
+      imageUrl: img("tsumago-cafe-kojitsu.jpg"),
+      kind: "cafe",
     },
     {
-      id: "bus-kitaena",
-      name: "バス（木曽南部 北恵那交通）",
-      mapUrl: "https://kitaena.co.jp/timetable/",
-      imageUrl: "/img/move-bus-kitaena.jpg",
+      id: "tsumago-hotel-hanaya",
+      name: "波奈屋",
+      mapUrl: "https://maps.app.goo.gl/fmnfEy9ZpkKycQDw7",
+      imageUrl: img("tsumago-hotel-hanaya.jpg"),
+      kind: "hotel",
     },
     {
-      id: "bus-ontake",
-      name: "バス（馬籠～妻籠～南木曾 おんたけ交通）",
-      mapUrl:
-        "https://www.town.nagiso.nagano.jp/data/open/cnt/3/9578/1/magome251001.pdf?20251208183048",
-      imageUrl: "/img/move-bus-ontake.jpg",
+      id: "tsumago-restaurant-fujioto",
+      name: "藤乙",
+      mapUrl: "https://maps.app.goo.gl/AGxKyN3GjCng7Ded8",
+      imageUrl: img("tsumago-restaurant-fujioto.jpg"),
+      kind: "restaurant",
     },
     {
-      id: "bus-kisobus",
-      name: "バス（木曽中部 きそバス）",
-      mapUrl: "https://www.kisoji.com/chiikishinko/kiso-bus/documents/kansen-rosen.pdf",
-      imageUrl: "/img/move-bus-kisobus.jpg",
+      id: "tsumago-restaurant-otokichi",
+      name: "御食事処 音吉",
+      mapUrl: "https://maps.app.goo.gl/2Y2V7hnPtNZsDHsA9",
+      imageUrl: img("tsumago-restaurant-otokichi.jpg"),
+      kind: "restaurant",
+    },
+    {
+      id: "tsumago-street-tsumago",
+      name: "妻籠宿",
+      mapUrl: "https://maps.app.goo.gl/7Nr6oxSzKXGCGBUw8",
+      imageUrl: img("tsumago-street-tsumago.jpg"),
+      kind: "street",
     },
   ],
 
-  // ========= 観光スポット =========
-  spot: [
+  // ========= 田立 =========
+  tadachi: [
     {
-      id: "magome-toge",
-      name: "馬籠峠",
-      mapUrl: "https://maps.app.goo.gl/yEvuyEcx7wjsP8FN7",
-      imageUrl: "/img/spot-magome-toge.jpg",
+      id: "tadachi-fishing-takahashigorge",
+      name: "高橋渓流",
+      mapUrl: "https://maps.app.goo.gl/eZEC1B3i3RqkyFUy5",
+      imageUrl: img("tadachi-fishing-takahashigorge.jpg"),
+      kind: "fishing",
     },
     {
-      id: "momosuke-bashi",
+      id: "tadachi-hotel-okaniwa",
+      name: "丘庭",
+      mapUrl: "https://maps.app.goo.gl/HJ1tBDZtb8xiaSRV8",
+      // ※メッセージ内で拡張子が省略されていたので .jpg で置いてます
+      // もしファイル名が違うならここだけ直してください
+      imageUrl: img("tadachi-hotel-okaniwa.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "tadachi-train-tadachi",
+      name: "田立駅",
+      mapUrl: "https://maps.app.goo.gl/en6FB8uHcMZyELbt5",
+      imageUrl: img("tadachi-train-tadachi.jpg"),
+      kind: "train",
+    },
+  ],
+
+  // ========= 蘭 =========
+  araragi: [
+    {
+      id: "araragi-trail-mtnagiso",
+      name: "南木曽岳",
+      mapUrl: "https://maps.app.goo.gl/zG6yiHrTWBzPeXcA7",
+      imageUrl: img("araragi-trail-mtnagiso.jpg"),
+      kind: "trail",
+    },
+    {
+      id: "araragi-hotel-taoya",
+      name: "TAOYA木曽路",
+      mapUrl: "https://maps.app.goo.gl/cwHGotxurgdwB1kg7",
+      imageUrl: img("araragi-hotel-taoya.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "araragi-lunch-mannya",
+      name: "萬屋（予約制）",
+      mapUrl: "https://maps.app.goo.gl/fpo9XJ2UWjoPjW92A",
+      imageUrl: img("araragi-lunch-mannya.jpg"),
+      kind: "lunch",
+    },
+  ],
+
+  // ========= 南木曽 =========
+  nagiso: [
+    {
+      id: "nagiso-bridge-momosuke",
       name: "桃介橋",
-      mapUrl: "https://maps.app.goo.gl/uaBmQ6SWZAefJDZw9",
-      imageUrl: "/img/spot-momosuke-bashi.jpg",
+      mapUrl: "https://maps.app.goo.gl/hvzCffr9rDTZUkZeA",
+      imageUrl: img("nagiso-bridge-momosuke.jpg"),
+      kind: "bridge",
     },
     {
-      id: "tokakuji",
-      name: "等覚寺",
-      mapUrl: "https://maps.app.goo.gl/3KNXQ1UDeX5vHE9N8",
-      imageUrl: "/img/spot-tokakuji.jpg",
+      id: "nagiso-cafe-ame",
+      name: "雨 中山道(カフェ)",
+      mapUrl: "https://maps.app.goo.gl/WZi6gUnMrX1ugEUG6",
+      imageUrl: img("nagiso-cafe-ame.jpg"),
+      kind: "cafe",
     },
     {
-      id: "yokawamichi",
-      name: "与川道",
-      mapUrl: "https://maps.app.goo.gl/2wVVKHkbhV588n9q9",
-      imageUrl: "/img/spot-yokawamichi.jpg",
-    },
-  ],
-
-  // ========= アクティビティ =========
-  activity: [
-    {
-      id: "really-rural-japan",
-      name: "Really Rural Japan",
-      mapUrl: "https://reallyruraljapan.com/",
-      imageUrl: "/img/activity-really-rural-japan.jpg",
-    },
-  ],
-
-  // ========= 外食 =========
-  food: [
-    {
-      id: "ni-gohan-han",
-      name: "二合半",
-      mapUrl: "https://maps.app.goo.gl/S5eeMVm2WYUW9Zp47",
-      imageUrl: "/img/food-nigohanhan.jpg",
+      id: "nagiso-cafe-izumiya",
+      name: "Izumiya",
+      mapUrl: "https://maps.app.goo.gl/k6EAeWvWeH65tXVr7",
+      imageUrl: img("nagiso-cafe-izumiya.jpg"),
+      kind: "cafe",
     },
     {
-      id: "riverbed-coffee",
-      name: "RIVERBED COFFEE BREWER&ROASTERY",
-      mapUrl: "https://maps.app.goo.gl/XE61LvDWEUkfKwQM8",
-      imageUrl: "/img/food-riverbed-coffee.jpg",
-    },
-    {
-      id: "kiseian",
-      name: "恵盛庵",
-      mapUrl: "https://maps.app.goo.gl/zpwu4gTAQKUkt8Xx9",
-      imageUrl: "/img/food-kiseian.jpg",
-    },
-    {
-      id: "ame-nakasendo-food",
-      name: "雨 中山道",
-      mapUrl: "https://maps.app.goo.gl/oXP8RAjzYRGjLAHT8",
-      imageUrl: "/img/food-ame-nakasendo.jpg",
-    },
-    {
-      id: "azumaya",
-      name: "AZUMAYA あづまや",
-      mapUrl: "https://maps.app.goo.gl/E4UhJogb5sub4JQB8",
-      imageUrl: "/img/food-azumaya.jpg",
-    },
-    {
-      id: "piero",
-      name: "ピエロ",
-      mapUrl: "https://maps.app.goo.gl/pVpq4uDH7RDW7fyj8",
-      imageUrl: "/img/food-piero.jpg",
-    },
-    {
-      id: "fukusuke",
-      name: "ふくすけ",
-      mapUrl: "https://maps.app.goo.gl/oKwiS6rHK2StD65n6",
-      imageUrl: "/img/food-fukusuke.jpg",
-    },
-    {
-      id: "momosuke-tei",
+      id: "nagiso-cafe-momosuketei",
       name: "桃介亭",
-      mapUrl: "https://maps.app.goo.gl/XMSDuRxmQxoVkRph9",
-      imageUrl: "/img/food-momosuke-tei.jpg",
+      mapUrl: "https://maps.app.goo.gl/zFF6SANKKWToeaeV9",
+      imageUrl: img("nagiso-cafe-momosuketei.jpg"),
+      kind: "cafe",
+    },
+    {
+      id: "nagiso-cyclestreet-batokannon",
+      name: "馬頭観音(サイクルコース)",
+      mapUrl: "https://maps.app.goo.gl/JjQsoDMvZrCkdbT26",
+      imageUrl: img("nagiso-cyclestreet-batokannon.jpg"),
+      kind: "cycle",
+    },
+    {
+      id: "nagiso-cyclestreet-route19",
+      name: "19号側道(サイクルコース)",
+      mapUrl: "https://maps.app.goo.gl/VqyM7QPrAqtiwwdE6",
+      imageUrl: img("nagiso-cyclestreet-route19.jpg"),
+      kind: "cycle",
+    },
+    {
+      id: "nagiso-free_e_bike-hashimotoya",
+      name: "橋本屋（無料Ebikeステーション）",
+      mapUrl: "https://maps.app.goo.gl/a2fDxn2iHbKiMZqw9",
+      imageUrl: img("nagiso-free_e_bike-hashimotoya.jpg"),
+      kind: "cycle",
+    },
+    {
+      id: "nagiso-goods-kosaten",
+      name: "交叉点",
+      mapUrl: "https://maps.app.goo.gl/tcw8Gx5zckC79WPr7",
+      imageUrl: img("nagiso-goods-kosaten.jpg"),
+      kind: "goods",
+    },
+    {
+      id: "nagiso-hotel-ame",
+      name: "雨 中山道(宿)",
+      mapUrl: "https://maps.app.goo.gl/WZi6gUnMrX1ugEUG6",
+      imageUrl: img("nagiso-hotel-ame.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "nagiso-hotel-kashiwaya",
+      name: "kashiwaya Inn",
+      mapUrl: "https://maps.app.goo.gl/Cgr3i94ju3NQCjubA",
+      imageUrl: img("nagiso-hotel-kashiwaya.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "nagiso-hotel-mountainn",
+      name: "Mountainn",
+      mapUrl: "https://maps.app.goo.gl/oEzbtPVtukT1zsF18",
+      imageUrl: img("nagiso-hotel-mountainn.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "nagiso-hotel-tsumugitei",
+      name: "tsumugi tei",
+      mapUrl: "https://maps.app.goo.gl/nYKWu92sRcQJGtEn7",
+      imageUrl: img("nagiso-hotel-tsumugitei.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "nagiso-hotel-yamo",
+      name: "YAMO",
+      mapUrl: "https://maps.app.goo.gl/ty79pAzpAhiw7sP6A",
+      imageUrl: img("nagiso-hotel-yamo.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "nagiso-lunch-fukusuke",
+      name: "ふくすけ",
+      mapUrl: "https://maps.app.goo.gl/a1uYtvPR5iAE3iYV9",
+      imageUrl: img("nagiso-lunch-fukusuke.jpg"),
+      kind: "lunch",
+    },
+    {
+      id: "nagiso-museum-woodhistory",
+      name: "山の歴史館",
+      mapUrl: "https://maps.app.goo.gl/tRNbK4mJL2M7cMdx6",
+      imageUrl: img("nagiso-museum-woodhistory.jpg"),
+      kind: "museum",
+    },
+    {
+      id: "nagiso-restaurant-azumaya",
+      name: "AZUMAYA",
+      mapUrl: "https://maps.app.goo.gl/aVPYmohiSdfbczyHA",
+      imageUrl: img("nagiso-restaurant-azumaya.jpg"),
+      kind: "restaurant",
+    },
+    {
+      id: "nagiso-restaurant-pierrot",
+      name: "ピエロ",
+      mapUrl: "https://maps.app.goo.gl/2g7N6QXA7VSMbVzz6",
+      imageUrl: img("nagiso-restaurant-pierrot.jpg"),
+      kind: "restaurant",
+    },
+    {
+      id: "nagiso-street-agatsuma",
+      name: "中山道(吾妻)",
+      mapUrl: "https://maps.app.goo.gl/iQfvicpnEc9nnZNq7",
+      imageUrl: img("nagiso-street-agatsuma.jpg"),
+      kind: "street",
+    },
+    {
+      id: "nagiso-street-midono",
+      name: "三留野宿",
+      mapUrl: "https://maps.app.goo.gl/k25ftVMD3UeKkSzB7",
+      imageUrl: img("nagiso-street-midono.jpg"),
+      kind: "street",
     },
   ],
 
-  // ========= 宿 =========
-  stay: [
+  // ========= 与川 =========
+  yogawa: [
     {
-      id: "kashiwaya",
-      name: "kashiwaya Inn 柏屋イン",
-      mapUrl: "https://maps.app.goo.gl/tzLh9hLuKezAyzgV7",
-      imageUrl: "/img/stay-kashiwaya.jpg",
-      bookingUrl:
-        "https://www.booking.com/searchresults.ja.html?aid=356980&label=gog235jc-10CAsodUINa2FzaGl3YXlhLWlubkgVWANodYgBAZgBM7gBF8gBDNgBA-gBAfgBAYgCAagCAbgCzo_fyQbAAgHSAiQ4MGVhNzZmMS02NzdjLTQ1YWItOGE1YS1mMTFiYzc4NzE4NznYAgHgAgE&highlighted_hotels=14643310&checkin=2026-02-08&redirected=1&city=900053828&hlrd=user_sh&source=hotel&checkout=2026-02-09&keep_landing=1&sid=b06b8f5d70c57eadc747048df16d148a",
-      airbnbUrl:
-        "https://www.airbnb.jp/rooms/1469195071434996296?guests=1&adults=1&s=67&unique_share_id=7c152dca-3853-40d4-b29b-777d700bc592",
+      id: "yogawa-camp-ties",
+      name: "ties",
+      mapUrl: "https://maps.app.goo.gl/4Go5AF253Bq6EgoQ6",
+      imageUrl: img("yogawa-camp-ties.jpg"),
+      kind: "camp",
     },
     {
-      id: "suhara",
+      id: "yogawa-hotel-yuian",
+      name: "結い庵",
+      mapUrl: "https://maps.app.goo.gl/FqCTwZ4fQXcmbwD49",
+      imageUrl: img("yogawa-hotel-yuian.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "yogawa-trail-nenoue",
+      name: "根の上峠",
+      mapUrl: "https://maps.app.goo.gl/E5jdcdvMb8Ht7dAe7",
+      imageUrl: img("yogawa-trail-nenoue.jpg"),
+      kind: "trail",
+    },
+    {
+      id: "yogawa-trail-yogawa",
+      name: "与川道",
+      mapUrl: "https://maps.app.goo.gl/ybEW1VD71LnNHLz66",
+      imageUrl: img("yogawa-trail-yogawa.jpg"),
+      kind: "trail",
+    },
+  ],
+
+  // ========= 柿其 =========
+  kakizore: [
+    {
+      id: "kakizore-bridge-koiji",
+      name: "恋路のつり橋",
+      mapUrl: "https://maps.app.goo.gl/Pe7AcCoFKwKGaHyo6",
+      imageUrl: img("kakizore-bridge-koiji.jpg"),
+      kind: "bridge",
+    },
+    {
+      id: "kakizore-gorge-kakizoreemerald",
+      name: "柿其黒淵",
+      mapUrl: "https://maps.app.goo.gl/BKxD1jrCZEpXTpq69",
+      imageUrl: img("kakizore-gorge-kakizoreemerald.jpg"),
+      kind: "gorge",
+    },
+    {
+      id: "kakizore-hotel-hoteiya",
+      name: "ほていや",
+      mapUrl: "https://maps.app.goo.gl/McGi219MuUuSPp9fA",
+      imageUrl: img("kakizore-hotel-hoteiya.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "kakizore-peak-koiji",
+      name: "恋路峠 展望台",
+      mapUrl: "https://maps.app.goo.gl/C71p624ZKhwEz8V57",
+      imageUrl: img("kakizore-peak-koiji.jpg"),
+      kind: "trail",
+    },
+    {
+      id: "kakizore-rest-kikori",
+      name: "きこりの家",
+      mapUrl: "https://maps.app.goo.gl/iBcHnxVjtdB8pyDw7",
+      imageUrl: img("kakizore-rest-kikori.jpg"),
+      kind: "restaurant",
+    },
+  ],
+
+  // ========= 阿寺 =========
+  atera: [
+    {
+      id: "atera-gorge-aterasapphire",
+      name: "阿寺狸ヶ淵",
+      mapUrl: "https://maps.app.goo.gl/4rS7F6sLWBZMoZfj6",
+      imageUrl: img("atera-gorge-aterasapphire.jpg"),
+      kind: "gorge",
+    },
+    {
+      id: "atera-hotel-ateraso",
+      name: "あてら荘（ホテル）",
+      mapUrl: "https://maps.app.goo.gl/dqFHfErwcjy284iT8",
+      imageUrl: img("atera-hotel-ateraso.jpg"),
+      kind: "hotel",
+    },
+    {
+      id: "atera-lunch-inaho",
+      name: "いなほ",
+      mapUrl: "https://maps.app.goo.gl/YsxCMvpJEyZntNZG8",
+      imageUrl: img("atera-lunch-inaho.jpg"),
+      kind: "lunch",
+    },
+    {
+      id: "atera-onsen-ateraso",
+      name: "あてら荘（温泉）",
+      mapUrl: "https://maps.app.goo.gl/dqFHfErwcjy284iT8",
+      imageUrl: img("atera-onsen-ateraso.jpg"),
+      kind: "onsen",
+    },
+  ],
+
+  // ========= 野尻 =========
+  nojiri: [
+    {
+      id: "nojiri-cafe-donguri",
+      name: "どんぐり",
+      mapUrl: "https://maps.app.goo.gl/yHVv9JD4TwzEKmZy6",
+      imageUrl: img("nojiri-cafe-donguri.jpg"),
+      kind: "cafe",
+    },
+    {
+      id: "nojiri-cafe-katana",
+      name: "珈琲 刀",
+      mapUrl: "https://maps.app.goo.gl/KKvrKp5P967o1PiS6",
+      imageUrl: img("nojiri-cafe-katana.jpg"),
+      kind: "cafe",
+    },
+    {
+      id: "nojiri-street-nojiri",
+      name: "野尻宿",
+      mapUrl: "https://maps.app.goo.gl/MfLAnnAUt8hs6qse9",
+      imageUrl: img("nojiri-street-nojiri.jpg"),
+      kind: "street",
+    },
+    {
+      id: "nojiri-train-nojiri",
+      name: "野尻駅",
+      mapUrl: "https://maps.app.goo.gl/ZLq1ptL9af5nhNEYA",
+      imageUrl: img("nojiri-train-nojiri.jpg"),
+      kind: "train",
+    },
+  ],
+
+  // ========= 須原 =========
+  suhara: [
+    {
+      id: "suhara-street-suhara",
+      name: "須原宿",
+      mapUrl: "https://maps.app.goo.gl/e4ZQtSaETZ7upAYeA",
+      imageUrl: img("suhara-street-suhara.jpg"),
+      kind: "street",
+    },
+    {
+      id: "suhara-train-suhara",
+      name: "須原駅",
+      mapUrl: "https://maps.app.goo.gl/CDvfcPEXm4iKZxTE9",
+      imageUrl: img("suhara-train-suhara.jpg"),
+      kind: "train",
+    },
+    {
+      id: "suhara-dinner-honjin",
+      name: "本陣",
+      mapUrl: "https://maps.app.goo.gl/pvAYnLibkfuU1Xig6",
+      imageUrl: img("suhara-dinner-honjin.jpg"),
+      kind: "dinner",
+    },
+    {
+      id: "suhara-hotel-minshukusuhara",
       name: "民宿すはら",
-      mapUrl: "https://maps.app.goo.gl/91sn647stWw2a4gn6",
-      imageUrl: "/img/stay-suhara.jpg",
-      bookingUrl:
-        "https://www.booking.com/hotel/jp/suhara.ja.html?aid=356980&label=gog235jc-10CAsodUINa2FzaGl3YXlhLWlubkgVWANodYgBAZgBM7gBF8gBDNgBA-gBAfgBAYgCAagCAbgCzo_fyQbAAgHSAiQ4MGVhNzZmMS02NzdjLTQ1YWItOGE1YS1mMTFiYzc4NzE4NznYAgHgAgE&sid=b06b8f5d70c57eadc747048df16d148a&age=0&all_sr_blocks=257823901_143706871_1_0_0&checkin=2026-02-08&checkout=2026-02-09&dest_id=900053828&dest_type=city&dist=0&group_adults=1&group_children=0&hapos=14&highlighted_blocks=257823901_143706871_1_0_0&hpos=14&matching_block_id=257823901_143706871_1_0_0&no_rooms=1&req_adults=1&req_children=0&room1=A&sb_price_type=total&sr_order=popularity&sr_pri_blocks=257823901_143706871_1_0_0__900000&srepoch=1765263395&srpvid=e9e030a75ca00372&type=total&ucfs=1&",
-    },
-    {
-      id: "sakanomichi",
-      name: "さかのみち",
-      mapUrl: "https://maps.app.goo.gl/YkNCuf7ozctVCif68",
-      imageUrl: "/img/stay-sakanomichi.jpg",
-      bookingUrl:
-        "https://booking.com/hotel/jp/sakanomiti.ja.html?label=gog235jc-10CAsodUIKc2FrYW5vbWl0aUgVWANodYgBAZgBM7gBF8gBDNgBA-gBAfgBAYgCAagCAbgC2ZDfyQbAAgHSAiRiZTA4OGI1ZS1lY2YwLTQwNWItODU1OS01ZmVhNjA2YTA1ZWXYAgHgAgE&sid=b06b8f5d70c57eadc747048df16d148a&aid=356980&ucfs=1&arphpl=1&checkin=2026-02-08&checkout=2026-02-09&dest_id=-238265&dest_type=city&group_adults=1&req_adults=1&no_rooms=1&group_children=0&req_children=0&hpos=1&hapos=1&sr_order=popularity&srpvid=af3030edec4d007a&srepoch=1765263457&soh=1&from=searchresults#no_availability_msg",
-    },
-    {
-      id: "onn-nakatsugawa",
-      name: "お宿Onn中津川",
-      mapUrl: "https://maps.app.goo.gl/hbdVC2SxfqyL4fMn6",
-      imageUrl: "/img/stay-onn-nakatsugawa.jpg",
-    },
-    {
-      id: "the-ryokan-o",
-      name: "The RYOKAN O",
-      mapUrl: "https://maps.app.goo.gl/R6eFqUAvvV8Wc1jr9",
-      imageUrl: "/img/stay-the-ryokan-o.jpg",
-    },
-    {
-      id: "guesthouse-shigi",
-      name: "Guesthouse SHIGI",
-      mapUrl: "https://maps.app.goo.gl/a7DHBFmGuR4T5hhe9",
-      imageUrl: "/img/stay-guesthouse-shigi.jpg",
-    },
-    {
-      id: "ame-nakasendo-stay",
-      name: "雨 中山道",
-      mapUrl: "https://maps.app.goo.gl/oXP8RAjzYRGjLAHT8",
-      imageUrl: "/img/stay-ame-nakasendo.jpg",
-    },
-  ],
-
-  // ========= 荷物配送 =========
-  shipping: [
-    {
-      id: "nlts",
-      name: "NLTS（荷物転送サービス）",
-      mapUrl: "https://magome-luggagetransport.jp/",
-      imageUrl: "/img/shipping-nlts.jpg",
+      mapUrl: "https://maps.app.goo.gl/3zTiqym1T7zY9L4x7",
+      imageUrl: img("suhara-hotel-minshukusuhara.jpg"),
+      kind: "hotel",
     },
   ],
 };

@@ -1,3 +1,4 @@
+// src/components/MapItineraryBuilder.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -47,12 +48,18 @@ function buildDetailFromSavedPlace(p: SavedPlace) {
   return parts.join("\n");
 }
 
-function makeFocusToken(query: string) {
-  const nonce =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random()}`;
-  return `${query}|||${nonce}`;
+function makeNonce() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+}
+
+function makeFocusTextToken(query: string) {
+  return `text:${query}|||${makeNonce()}`;
+}
+function makeFocusUrlToken(url: string, nameHint?: string) {
+  const hint = String(nameHint ?? "").trim();
+  return `url:${url}|||${makeNonce()}${hint ? `|||name:${hint}` : ""}`;
 }
 
 export default function MapItineraryBuilder() {
@@ -155,10 +162,14 @@ export default function MapItineraryBuilder() {
   };
 
   const onSelectFromDrawer = (p: SavedPlace) => {
-    setFocusName(makeFocusToken(p.name));
-
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
+
+    if (p.mapUrl) {
+      setFocusName(makeFocusUrlToken(p.mapUrl, p.name));
+    } else {
+      setFocusName(makeFocusTextToken(p.name));
+    }
 
     const detailCandidate = buildDetailFromSavedPlace(p);
 
@@ -179,7 +190,7 @@ export default function MapItineraryBuilder() {
   };
 
   const onSearch = (query: string) => {
-    setFocusName(makeFocusToken(query));
+    setFocusName(makeFocusTextToken(query));
 
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
@@ -248,7 +259,13 @@ export default function MapItineraryBuilder() {
 
   return (
     <div className="h-dvh w-dvw overflow-hidden relative bg-neutral-950">
-      <GoogleMapCanvas selectedItemId={selectedItemId} onPickPlace={onPickPlace} focusName={focusName} />
+      {/* ★ここが重要：items を渡す（ルート描画の材料） */}
+      <GoogleMapCanvas
+        items={items}
+        selectedItemId={selectedItemId}
+        onPickPlace={onPickPlace}
+        focusName={focusName}
+      />
 
       <LeftDrawer
         onSelectPlace={onSelectFromDrawer}
@@ -262,16 +279,15 @@ export default function MapItineraryBuilder() {
 
       <button
         onClick={() => setItineraryOpen((v) => !v)}
-        className="absolute right-4 top-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
+        className="absolute right-4 top-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100 pointer-events-auto"
         title="旅程"
       >
         📝
       </button>
 
       {itineraryOpen && (
-        <div className="absolute inset-0 z-[60] pointer-events-auto">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setItineraryOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-[560px] max-w-[92vw] bg-neutral-950/95 backdrop-blur shadow-xl border-l border-neutral-800 overflow-auto">
+        <div className="absolute right-0 top-0 z-[70] h-full w-[560px] max-w-[92vw] pointer-events-auto">
+          <div className="h-full bg-neutral-950/95 backdrop-blur shadow-xl border-l border-neutral-800 overflow-auto">
             <ItineraryPanel
               items={items}
               dates={dates}
@@ -295,14 +311,14 @@ export default function MapItineraryBuilder() {
 
       <button
         onClick={() => setChatOpen((v) => !v)}
-        className="absolute right-4 bottom-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
+        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100 pointer-events-auto"
         title="チャット"
       >
         💬
       </button>
 
       {chatOpen && (
-        <div className="absolute right-4 bottom-16 z-[65] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
+        <div className="absolute right-4 bottom-16 z-[75] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
           <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
             <ChatCorner />
           </div>
@@ -310,7 +326,7 @@ export default function MapItineraryBuilder() {
       )}
 
       {saveToast && (
-        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[80] pointer-events-none">
+        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[90] pointer-events-none">
           <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 shadow px-3 py-2 text-xs whitespace-pre-wrap text-neutral-100 backdrop-blur pointer-events-auto">
             {saveToast}
           </div>
