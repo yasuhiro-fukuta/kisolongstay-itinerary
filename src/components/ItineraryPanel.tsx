@@ -2,29 +2,13 @@
 "use client";
 
 import type { DayIndex, ItineraryItem } from "@/lib/itinerary";
-
-function dayColor(day: number) {
-  const colors = ["#3b82f6", "#22c55e", "#eab308", "#ef4444"];
-  return colors[(day - 1) % colors.length];
-}
-
-function hexToRgba(hex: string, alpha: number) {
-  const h = hex.replace("#", "").trim();
-  const v = h.length === 3
-    ? h.split("").map((c) => c + c).join("")
-    : h;
-  const n = parseInt(v, 16);
-  const r = (n >> 16) & 255;
-  const g = (n >> 8) & 255;
-  const b = n & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
+import { dayColor, hexToRgba } from "@/lib/dayColors";
 
 export default function ItineraryPanel({
   items,
   dates,
-  startDate,
-  onChangeStartDate,
+  baseDate,
+  onChangeBaseDate,
   selectedItemId,
   onSelectItem,
   onChangeItem,
@@ -35,9 +19,10 @@ export default function ItineraryPanel({
   userLabel,
 }: {
   items: ItineraryItem[];
-  dates: string[]; // Day1..Day5 表示用（自動）
-  startDate: string; // 出発日
-  onChangeStartDate: (v: string) => void;
+  dates: string[];
+
+  baseDate: string;
+  onChangeBaseDate: (v: string) => void;
 
   selectedItemId: string | null;
   onSelectItem: (id: string) => void;
@@ -51,23 +36,26 @@ export default function ItineraryPanel({
   userLabel?: string | null;
 }) {
   return (
-    <div className="text-neutral-100">
+    <div className="text-neutral-100 h-full flex flex-col">
       {/* Header */}
-      <div className="p-3 border-b border-neutral-800 flex items-center justify-between gap-3">
+      <div className="p-3 border-b border-neutral-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-semibold truncate">
-            木曽南部ロングステイ Itinerary（mobile v2）
-          </div>
-
+          <div className="font-semibold truncate">木曽南部ロングステイ Itinerary（mobile v2）</div>
           {userLabel ? (
-            <div className="text-xs text-neutral-400 truncate">
-              ログイン中：{userLabel}
-            </div>
+            <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
           ) : (
-            <div className="text-xs text-neutral-400 truncate">
-              未ログイン（保存する時にログインできます）
-            </div>
+            <div className="text-xs text-neutral-400 truncate">未ログイン（保存する時にログインできます）</div>
           )}
+
+          <div className="mt-2 flex items-center gap-2">
+            <div className="text-xs text-neutral-300 shrink-0">出発日</div>
+            <input
+              type="date"
+              value={baseDate ?? ""}
+              onChange={(e) => onChangeBaseDate(e.target.value)}
+              className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
+            />
+          </div>
         </div>
 
         <button
@@ -79,43 +67,25 @@ export default function ItineraryPanel({
         </button>
       </div>
 
-      {/* 出発日 */}
-      <div className="px-3 py-2 border-b border-neutral-800 flex items-center gap-3">
-        <div className="text-xs text-neutral-300 shrink-0">出発日</div>
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => onChangeStartDate(e.target.value)}
-          className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
-        />
-        <div className="ml-auto text-[11px] text-neutral-500">
-          Day2以降は +1日で自動
-        </div>
-      </div>
-
       {/* Body */}
-      <div className="p-3 space-y-3">
+      <div className="flex-1 overflow-auto p-3 space-y-3">
         {([1, 2, 3, 4, 5] as const).map((day, idx0) => {
           const color = dayColor(day);
-          const dayItems = items.filter((x) => x.day === day);
+          const list = items.filter((x) => x.day === day);
 
           return (
             <section
               key={day}
               className="rounded-2xl border overflow-hidden"
               style={{
-                borderColor: hexToRgba(color, 0.9),
+                borderColor: color,
                 backgroundColor: hexToRgba(color, 0.06),
               }}
             >
-              {/* Day header row: Day / date / + */}
-              <div
-                className="px-3 py-2 flex items-center gap-2 border-b"
-                style={{ borderColor: hexToRgba(color, 0.25) }}
-              >
+              {/* Day header row: Day + date + + button */}
+              <div className="px-3 py-2 flex items-center gap-2 border-b border-neutral-800/70">
                 <div className="font-semibold">Day{day}</div>
-
-                <div className="text-xs text-neutral-200/90 rounded-md px-2 py-0.5 border border-neutral-700/60 bg-neutral-950/40">
+                <div className="ml-2 text-xs text-neutral-300 rounded-md px-2 py-1 border border-neutral-800 bg-neutral-950/40">
                   {dates[idx0] ?? ""}
                 </div>
 
@@ -129,7 +99,7 @@ export default function ItineraryPanel({
               </div>
 
               <div className="p-3 space-y-2">
-                {dayItems.map((v) => {
+                {list.map((v) => {
                   const checked = selectedItemId === v.id;
 
                   return (
@@ -157,26 +127,20 @@ export default function ItineraryPanel({
                           value={v.name}
                           onChange={(e) => onChangeItem(v.id, { name: e.target.value })}
                           placeholder="スポット/サービス名"
-                          className="flex-1 min-w-0 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
+                          className="flex-1 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
                         />
 
                         <input
                           value={v.price}
                           onChange={(e) => onChangeItem(v.id, { price: e.target.value })}
                           placeholder="金額"
-                          className="w-[92px] rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 text-right"
+                          className="w-[90px] rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-2 text-sm text-neutral-100 placeholder:text-neutral-500"
                         />
                       </div>
 
                       {v.mapUrl && (
-                        <div className="mt-1 pl-6 text-xs text-neutral-300">
-                          <a
-                            className="underline"
-                            href={v.mapUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                          >
+                        <div className="mt-2 text-xs text-neutral-300">
+                          <a className="underline" href={v.mapUrl} target="_blank" rel="noreferrer">
                             GoogleMaps
                           </a>
                         </div>

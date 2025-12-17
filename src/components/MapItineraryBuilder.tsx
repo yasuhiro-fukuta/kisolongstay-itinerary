@@ -1,10 +1,10 @@
 // src/components/MapItineraryBuilder.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
-import GoogleMapCanvas, { type PickedPlace } from "@/components/GoogleMapCanvas";
+import GoogleMapCanvas, { type MapFocus } from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
 import LeftDrawer from "@/components/LeftDrawer";
 import ItineraryPanel from "@/components/ItineraryPanel";
@@ -12,7 +12,7 @@ import ChatCorner from "@/components/ChatCorner";
 import AuthModal from "@/components/AuthModal";
 
 import { auth } from "@/lib/firebaseClient";
-import { makeInitialItems, type DayIndex, type EntryType, type ItineraryItem } from "@/lib/itinerary";
+import { makeInitialItems, type DayIndex, type ItineraryItem } from "@/lib/itinerary";
 import type { SavedPlace } from "@/lib/savedLists";
 import {
   saveItinerary,
@@ -26,26 +26,13 @@ function yyyyMmDd(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function makeItemId(day: DayIndex, type: EntryType) {
-  const suffix =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `${day}:${type}:${suffix}`;
-}
-
-function buildDetailFromPickedPlace(p: PickedPlace) {
-  const parts = [p.website, p.bookingUrl, p.airbnbUrl, p.rakutenUrl, p.viatorUrl]
-    .map((x) => String(x ?? "").trim())
-    .filter(Boolean);
-  return parts.join("\n");
-}
-
-function buildDetailFromSavedPlace(p: SavedPlace) {
-  const parts = [p.officialUrl, p.bookingUrl, p.airbnbUrl, p.rakutenUrl, p.viatorUrl]
-    .map((x) => String(x ?? "").trim())
-    .filter(Boolean);
-  return parts.join("\n");
+function addDays(base: string, plusDays: number): string {
+  if (!base) return "";
+  const [y, m, d] = base.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + plusDays);
+  return yyyyMmDd(dt);
 }
 
 function makeNonce() {
@@ -54,28 +41,43 @@ function makeNonce() {
     : `${Date.now()}-${Math.random()}`;
 }
 
-function makeFocusTextToken(query: string) {
-  return `text:${query}|||${makeNonce()}`;
+function makeItemId(day: DayIndex) {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${day}:spot:${suffix}`;
 }
-function makeFocusUrlToken(url: string, nameHint?: string) {
-  const hint = String(nameHint ?? "").trim();
-  return `url:${url}|||${makeNonce()}${hint ? `|||name:${hint}` : ""}`;
+
+async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng: number } | null> {
+  const url = String(mapUrl ?? "").trim();
+  if (!url) return null;
+
+  const res = await fetch("/api/resolve-map", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+
+  const data = await res.json().catch(() => ({} as any));
+  if (!res.ok) return null;
+
+  if (data?.ok && typeof data.lat === "number" && typeof data.lng === "number") {
+    return { lat: data.lat, lng: data.lng };
+  }
+  return null;
 }
 
 export default function MapItineraryBuilder() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>(() => makeInitialItems());
 
-  const [dates, setDates] = useState<string[]>(() => {
-    const base = new Date();
-    return Array.from({ length: 5 }, (_, i) => {
-      const d = new Date(base);
-      d.setDate(base.getDate() + i);
-      return yyyyMmDd(d);
-    });
-  });
+  const [baseDate, setBaseDate] = useState<string>(() => yyyyMmDd(new Date()));
+  const dates = useMemo(() => {
+    return Array.from({ length: 5 }, (_, i) => addDays(baseDate, i));
+  }, [baseDate]);
 
-  const [focusName, setFocusName] = useState<string | null>(null);
+  const [focus, setFocus] = useState<MapFocus>({ kind: "none" });
 
   const [itineraryOpen, setItineraryOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
@@ -87,6 +89,8 @@ export default function MapItineraryBuilder() {
   const [saving, setSaving] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [saveAfterLogin, setSaveAfterLogin] = useState(false);
+
+  const resolvingRef = useRef(0);
 
   const userLabel = useMemo(() => {
     if (!user) return null;
@@ -135,14 +139,11 @@ export default function MapItineraryBuilder() {
     await doSave(user);
   };
 
-  const fallbackTargetId = () =>
-    items.find((i) => i.day === 1 && i.type === "spot")?.id ?? null;
+  const fallbackTargetId = () => items.find((i) => i.day === 1)?.id ?? null;
 
-  const onPickPlace = (itemId: string | null, place: PickedPlace) => {
+  const onPickPlace = (itemId: string | null, place: any) => {
     const targetId = itemId ?? selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
-
-    const detailCandidate = buildDetailFromPickedPlace(place);
 
     setItems((prev) =>
       prev.map((it) =>
@@ -152,7 +153,8 @@ export default function MapItineraryBuilder() {
               name: place.name ?? it.name,
               mapUrl: place.mapUrl ?? it.mapUrl,
               placeId: place.placeId ?? it.placeId,
-              detail: it.detail ? it.detail : detailCandidate,
+              lat: typeof place.lat === "number" ? place.lat : it.lat,
+              lng: typeof place.lng === "number" ? place.lng : it.lng,
             }
           : it
       )
@@ -161,18 +163,11 @@ export default function MapItineraryBuilder() {
     setSelectedItemId(targetId);
   };
 
-  const onSelectFromDrawer = (p: SavedPlace) => {
+  const onSelectFromDrawer = async (p: SavedPlace) => {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
 
-    if (p.mapUrl) {
-      setFocusName(makeFocusUrlToken(p.mapUrl, p.name));
-    } else {
-      setFocusName(makeFocusTextToken(p.name));
-    }
-
-    const detailCandidate = buildDetailFromSavedPlace(p);
-
+    // まず UI（右リスト）を即更新：最低限 name/mapUrl は確定で入れる
     setItems((prev) =>
       prev.map((it) =>
         it.id === targetId
@@ -180,26 +175,59 @@ export default function MapItineraryBuilder() {
               ...it,
               name: p.name ?? it.name,
               mapUrl: p.mapUrl ?? it.mapUrl,
-              detail: it.detail ? it.detail : detailCandidate,
+              placeId: "",
+              lat: undefined,
+              lng: undefined,
+            }
+          : it
+      )
+    );
+    setSelectedItemId(targetId);
+
+    // mapUrl を resolve して lat/lng を確定（これが “同名別ヒット” を防ぐ）
+    const myReq = ++resolvingRef.current;
+    const loc = await resolveMapUrlToLatLng(p.mapUrl);
+    if (myReq !== resolvingRef.current) return; // stale
+
+    if (!loc) {
+      // 最終手段：名前検索（ただし mapUrl は正として残す）
+      setFocus({ kind: "query", query: p.name, nonce: makeNonce() });
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === targetId
+          ? {
+              ...it,
+              lat: loc.lat,
+              lng: loc.lng,
             }
           : it
       )
     );
 
-    setSelectedItemId(targetId);
+    // 地図は lat/lng に確実に寄せる（ピンも刺さる）
+    setFocus({ kind: "latlng", lat: loc.lat, lng: loc.lng, nonce: makeNonce() });
   };
 
   const onSearch = (query: string) => {
-    setFocusName(makeFocusTextToken(query));
+    const q = query.trim();
+    if (!q) return;
 
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
 
     setItems((prev) =>
-      prev.map((it) => (it.id === targetId ? { ...it, name: query } : it))
+      prev.map((it) =>
+        it.id === targetId
+          ? { ...it, name: q, mapUrl: "", placeId: "", lat: undefined, lng: undefined }
+          : it
+      )
     );
 
     setSelectedItemId(targetId);
+    setFocus({ kind: "query", query: q, nonce: makeNonce() });
   };
 
   const onLoadItinerary = async (id: string) => {
@@ -209,7 +237,10 @@ export default function MapItineraryBuilder() {
     }
     try {
       const loaded = await loadItinerary(user.uid, id);
-      if (loaded.dates?.length) setDates(loaded.dates);
+
+      // baseDate は dates[0] を採用（なければ維持）
+      if (loaded.dates?.[0]) setBaseDate(String(loaded.dates[0]));
+
       setItems(loaded.items);
       setSaveToast("旅程をロードしました");
       setTimeout(() => setSaveToast(null), 1500);
@@ -218,24 +249,26 @@ export default function MapItineraryBuilder() {
     }
   };
 
-  const onAddItem = (day: DayIndex, type: EntryType) => {
-    const newId = makeItemId(day, type);
+  const onAddItem = (day: DayIndex) => {
+    const newId = makeItemId(day);
 
     setItems((prev) => {
       const newItem: ItineraryItem = {
         id: newId,
         day,
-        type,
+        type: "spot",
         name: "",
-        detail: "",
         price: "",
-        placeId: "",
         mapUrl: "",
+        placeId: "",
+        lat: undefined,
+        lng: undefined,
       };
 
+      // insert after last item in same day
       let insertAt = prev.length;
       for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i].day === day && prev[i].type === type) {
+        if (prev[i].day === day) {
           insertAt = i + 1;
           break;
         }
@@ -259,12 +292,11 @@ export default function MapItineraryBuilder() {
 
   return (
     <div className="h-dvh w-dvw overflow-hidden relative bg-neutral-950">
-      {/* ★ここが重要：items を渡す（ルート描画の材料） */}
       <GoogleMapCanvas
-        items={items}
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
-        focusName={focusName}
+        focus={focus}
+        items={items}
       />
 
       <LeftDrawer
@@ -279,23 +311,22 @@ export default function MapItineraryBuilder() {
 
       <button
         onClick={() => setItineraryOpen((v) => !v)}
-        className="absolute right-4 top-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100 pointer-events-auto"
+        className="absolute right-4 top-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
         title="旅程"
       >
         📝
       </button>
 
       {itineraryOpen && (
-        <div className="absolute right-0 top-0 z-[70] h-full w-[560px] max-w-[92vw] pointer-events-auto">
-          <div className="h-full bg-neutral-950/95 backdrop-blur shadow-xl border-l border-neutral-800 overflow-auto">
+        <div className="absolute right-4 top-16 z-[65] w-[520px] max-w-[92vw] h-[76vh] pointer-events-auto">
+          <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
             <ItineraryPanel
               items={items}
               dates={dates}
+              baseDate={baseDate}
+              onChangeBaseDate={setBaseDate}
               selectedItemId={selectedItemId}
               onSelectItem={(id) => setSelectedItemId(id)}
-              onChangeDate={(dayIdx0, v) =>
-                setDates((prev) => prev.map((x, i) => (i === dayIdx0 ? v : x)))
-              }
               onChangeItem={(id, patch) =>
                 setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)))
               }
@@ -311,14 +342,14 @@ export default function MapItineraryBuilder() {
 
       <button
         onClick={() => setChatOpen((v) => !v)}
-        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100 pointer-events-auto"
+        className="absolute right-4 bottom-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
         title="チャット"
       >
         💬
       </button>
 
       {chatOpen && (
-        <div className="absolute right-4 bottom-16 z-[75] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
+        <div className="absolute right-4 bottom-16 z-[65] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
           <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
             <ChatCorner />
           </div>
@@ -326,7 +357,7 @@ export default function MapItineraryBuilder() {
       )}
 
       {saveToast && (
-        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[90] pointer-events-none">
+        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[80] pointer-events-none">
           <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 shadow px-3 py-2 text-xs whitespace-pre-wrap text-neutral-100 backdrop-blur pointer-events-auto">
             {saveToast}
           </div>

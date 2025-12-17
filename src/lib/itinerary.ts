@@ -1,9 +1,7 @@
 // src/lib/itinerary.ts
 
-export const ENTRY_TYPES = [{ key: "spot", label: "スポット" }] as const;
-
-export type EntryType = (typeof ENTRY_TYPES)[number]["key"];
 export type DayIndex = 1 | 2 | 3 | 4 | 5;
+export type EntryType = "spot";
 
 export type ItemId = string;
 
@@ -15,12 +13,12 @@ export type ItineraryItem = {
   name: string;
   price: string;
 
-  // 地図連携
-  placeId?: string;
   mapUrl?: string;
+  placeId?: string;
 
-  // 互換用（昔の保存データがあっても壊れにくくするため）
-  detail?: string;
+  // ★ルートはこれを使う（placeId には依存しない）
+  lat?: number;
+  lng?: number;
 };
 
 export function makeInitialItems(): ItineraryItem[] {
@@ -32,9 +30,10 @@ export function makeInitialItems(): ItineraryItem[] {
       type: "spot",
       name: "",
       price: "",
-      placeId: "",
       mapUrl: "",
-      detail: "",
+      placeId: "",
+      lat: undefined,
+      lng: undefined,
     });
   }
   return items;

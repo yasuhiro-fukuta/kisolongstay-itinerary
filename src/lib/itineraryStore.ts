@@ -10,7 +10,7 @@ import {
   doc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import { makeInitialItems, type DayIndex, type ItineraryItem } from "@/lib/itinerary";
+import { makeInitialItems, type ItineraryItem } from "@/lib/itinerary";
 
 export type SavedItineraryMeta = {
   id: string;
@@ -23,12 +23,42 @@ function pad(n: number) {
 }
 
 function buildTitle(date: Date) {
-  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(
-    date.getDate()
-  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 }
 
-function normalizeDay(v: unknown): DayIndex | null {
+/**
+ * Firestore は undefined を保存できないので、
+ * 数値として正しいときだけフィールドを付与する。
+ */
+function addLatLngIfValid(
+  obj: Record<string, any>,
+  lat: any,
+  lng: any
+): Record<string, any> {
+  const out: Record<string, any> = { ...obj };
+
+  if (typeof lat === "number" && Number.isFinite(lat) && Math.abs(lat) <= 90) {
+    out.lat = lat;
+  }
+  if (typeof lng === "number" && Number.isFinite(lng) && Math.abs(lng) <= 180) {
+    out.lng = lng;
+  }
+
+  return out;
+}
+
+/**
+ * 読み込み時：null/undefined/空文字は undefined 扱いにする（0 に化けさせない）
+ */
+function numOrUndef(v: any): number | undefined {
+  if (v === null || v === undefined || v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeDay(v: unknown): 1 | 2 | 3 | 4 | 5 | null {
   const n = Number(v);
   if (n === 1 || n === 2 || n === 3 || n === 4 || n === 5) return n;
   return null;
@@ -39,23 +69,28 @@ export async function saveItinerary(uid: string, dates: string[], items: Itinera
   const title = buildTitle(now);
   const savedAtMs = now.getTime();
 
-  const safeItems = items.map((x) => ({
-    id: String(x.id),
-    day: x.day,
-    type: "spot",
-    name: String(x.name ?? ""),
-    price: String(x.price ?? ""),
-    placeId: String(x.placeId ?? ""),
-    mapUrl: String(x.mapUrl ?? ""),
-    detail: String((x as any).detail ?? ""),
-  }));
+  const safeItems = items.map((x) => {
+    // まず undefined を絶対に含まない形でベースを作る
+    const base = {
+      id: String(x.id),
+      day: Number(x.day),
+      type: "spot",
+      name: String(x.name ?? ""),
+      price: String(x.price ?? ""),
+      mapUrl: String(x.mapUrl ?? ""),
+      placeId: String(x.placeId ?? ""),
+    };
+
+    // lat/lng は「数値として妥当なときだけ」付与（undefined は絶対入れない）
+    return addLatLngIfValid(base, x.lat, x.lng);
+  });
 
   const ref = await addDoc(collection(db, "itineraries"), {
     schemaVersion: 3,
     uid,
     title,
     savedAtMs,
-    dates,
+    dates: Array.isArray(dates) ? dates.map((d) => String(d ?? "")) : [],
     items: safeItems,
   });
 
@@ -91,9 +126,8 @@ export async function loadItinerary(
 
   if (data.uid !== uid) throw new Error("権限がありません");
 
-  const dates = Array.isArray(data?.dates) ? data.dates.map(String) : [];
+  const dates = Array.isArray(data?.dates) ? data.dates.map((v: any) => String(v ?? "")) : [];
 
-  // v3/v2: items
   if (Array.isArray(data?.items)) {
     const parsed: ItineraryItem[] = data.items
       .map((raw: any) => {
@@ -105,89 +139,16 @@ export async function loadItinerary(
           day,
           type: "spot",
           name: String(raw?.name ?? ""),
-          price: String(raw?.price ?? raw?.priceText ?? ""),
-          placeId: String(raw?.placeId ?? ""),
+          price: String(raw?.price ?? ""),
           mapUrl: String(raw?.mapUrl ?? ""),
-          detail: String(raw?.detail ?? ""),
+          placeId: String(raw?.placeId ?? ""),
+          lat: numOrUndef(raw?.lat),
+          lng: numOrUndef(raw?.lng),
         } satisfies ItineraryItem;
       })
       .filter(Boolean) as ItineraryItem[];
 
-    // 各Dayに最低1行は確保
-    const ensured = [...parsed];
-    for (const day of [1, 2, 3, 4, 5] as const) {
-      if (!ensured.some((x) => x.day === day)) {
-        ensured.push({
-          id: `${day}:spot:0`,
-          day,
-          type: "spot",
-          name: "",
-          price: "",
-          placeId: "",
-          mapUrl: "",
-          detail: "",
-        });
-      }
-    }
-
-    ensured.sort((a, b) => {
-      const d = a.day - b.day;
-      if (d) return d;
-      return a.id.localeCompare(b.id);
-    });
-
-    return { dates, items: ensured.length ? ensured : makeInitialItems() };
-  }
-
-  // v1 fallback: rows -> items（ざっくりspot化）
-  if (Array.isArray(data?.rows)) {
-    const counters: Record<string, number> = {};
-    const items: ItineraryItem[] = [];
-
-    for (const r of data.rows ?? []) {
-      const rowId = String(r?.id ?? "");
-      const [dayStr] = rowId.split(":");
-      const day = normalizeDay(dayStr);
-      if (!day) continue;
-
-      const key = `${day}:spot`;
-      const idx = counters[key] ?? 0;
-      counters[key] = idx + 1;
-
-      items.push({
-        id: `${key}:${idx}`,
-        day,
-        type: "spot",
-        name: String(r?.name ?? ""),
-        price: String(r?.price ?? ""),
-        placeId: String(r?.placeId ?? ""),
-        mapUrl: String(r?.mapUrl ?? ""),
-        detail: "",
-      });
-    }
-
-    for (const day of [1, 2, 3, 4, 5] as const) {
-      if (!items.some((x) => x.day === day)) {
-        items.push({
-          id: `${day}:spot:0`,
-          day,
-          type: "spot",
-          name: "",
-          price: "",
-          placeId: "",
-          mapUrl: "",
-          detail: "",
-        });
-      }
-    }
-
-    items.sort((a, b) => {
-      const d = a.day - b.day;
-      if (d) return d;
-      return a.id.localeCompare(b.id);
-    });
-
-    return { dates, items };
+    return { dates, items: parsed.length ? parsed : makeInitialItems() };
   }
 
   return { dates, items: makeInitialItems() };
