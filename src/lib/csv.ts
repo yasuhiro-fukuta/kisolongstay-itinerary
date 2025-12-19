@@ -1,7 +1,7 @@
 // src/lib/csv.ts
 
 /**
- * Minimal CSV parser with:
+ * Minimal CSV parser:
  * - UTF-8 BOM removal
  * - CRLF/LF handling
  * - quoted fields with "" escape
@@ -82,15 +82,31 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+function is2dArray(v: any): v is string[][] {
+  return Array.isArray(v) && (v.length === 0 || Array.isArray(v[0]));
+}
+
 /**
  * Convert CSV rows to objects using first row as header.
+ *
+ * ✅ rowsOrText can be:
+ * - string[][] (rows)
+ * - string (raw CSV text)
  */
-export function csvToObjects(rows: string[][]): Record<string, string>[] {
+export function csvToObjects(rowsOrText: string[][] | string): Record<string, string>[] {
+  const rows: string[][] = is2dArray(rowsOrText) ? rowsOrText : parseCsv(String(rowsOrText ?? ""));
+
   if (!rows.length) return [];
-  const header = rows[0].map((h) => String(h ?? "").trim());
+
+  // header
+  const headerRow = Array.isArray(rows[0]) ? rows[0] : [];
+  const header = headerRow.map((h) => String(h ?? "").trim());
+
   const out: Record<string, string>[] = [];
 
   for (const r of rows.slice(1)) {
+    if (!Array.isArray(r)) continue;
+
     const obj: Record<string, string> = {};
     for (let i = 0; i < header.length; i++) {
       const key = header[i] || `col${i}`;
@@ -100,4 +116,12 @@ export function csvToObjects(rows: string[][]): Record<string, string>[] {
   }
 
   return out;
+}
+
+/** 互換alias */
+export const csvToRecords = csvToObjects;
+
+/** 明示的に text を渡したい場合 */
+export function csvToObjectsFromText(text: string): Record<string, string>[] {
+  return csvToObjects(text);
 }

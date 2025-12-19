@@ -1,46 +1,64 @@
 // src/lib/itinerary.ts
 
-export type DayIndex = 1 | 2 | 3 | 4 | 5;
 export type EntryType = "spot";
-
 export type ItemId = string;
 
 export type ItineraryItem = {
   id: ItemId;
-  day: DayIndex;
+  day: number; // 1..N（可変）
+
   type: EntryType;
 
+  // ★自由記述は UI では禁止（ただし表示・外部入力で入る）
   name: string;
-  price: string;
 
-  // どれも「空でOK」：無かったら無いで文字だけ入れば良い
-  mapUrl?: string;
-  hpUrl?: string;
-  otaUrl?: string;
+  // ★Map/HP/OTA は必須ではない（空でも有効）
+  mapUrl: string;
+  hpUrl: string;
+  otaUrl: string;
 
-  placeId?: string;
+  // 参照用（Mapクリック時など）
+  placeId: string;
 
-  // ★ルートはこれを使う（placeId には依存しない）
+  // ルート描画用（Mapが無い場合は undefined のままでもOK）
   lat?: number;
   lng?: number;
 };
 
-export function makeInitialItems(): ItineraryItem[] {
-  const items: ItineraryItem[] = [];
-  for (const day of [1, 2, 3, 4, 5] as const) {
-    items.push({
-      id: `${day}:spot:0`,
-      day,
-      type: "spot",
-      name: "",
-      price: "",
-      mapUrl: "",
-      hpUrl: "",
-      otaUrl: "",
-      placeId: "",
-      lat: undefined,
-      lng: undefined,
-    });
+function makeId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `spot:${crypto.randomUUID()}`
+    : `spot:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function makeEmptySpot(day: number): ItineraryItem {
+  return {
+    id: makeId(),
+    day: Math.max(1, Math.trunc(day || 1)),
+    type: "spot",
+    name: "",
+    mapUrl: "",
+    hpUrl: "",
+    otaUrl: "",
+    placeId: "",
+    lat: undefined,
+    lng: undefined,
+  };
+}
+
+/**
+ * 初期は 5 Day × 各 1 行（v2互換の感覚）
+ * v3では + / - で増減できる。
+ */
+export function makeInitialItems(dayCount = 5, rowsPerDay = 1): ItineraryItem[] {
+  const d = Math.max(1, Math.trunc(dayCount || 1));
+  const r = Math.max(1, Math.trunc(rowsPerDay || 1));
+  const out: ItineraryItem[] = [];
+
+  for (let day = 1; day <= d; day++) {
+    for (let i = 0; i < r; i++) {
+      out.push(makeEmptySpot(day));
+    }
   }
-  return items;
+  return out;
 }

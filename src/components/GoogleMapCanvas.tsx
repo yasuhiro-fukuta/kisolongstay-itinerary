@@ -1,7 +1,7 @@
 // src/components/GoogleMapCanvas.tsx
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { loadGoogleMaps } from "@/lib/googleMapsLoader";
 import type { ItineraryItem } from "@/lib/itinerary";
 import { dayColor } from "@/lib/dayColors";
@@ -19,7 +19,9 @@ export type MapFocus =
   | { kind: "query"; query: string; nonce: string }
   | { kind: "latlng"; lat: number; lng: number; nonce: string };
 
-type LatLng = { lat: number; lng: number };
+export type AreaFocus =
+  | { kind: "none" }
+  | { kind: "circle"; lat: number; lng: number; radiusMeters: number; nonce: string };
 
 function decodePolyline(encoded: string): google.maps.LatLngLiteral[] {
   const points: google.maps.LatLngLiteral[] = [];
@@ -38,7 +40,7 @@ function decodePolyline(encoded: string): google.maps.LatLngLiteral[] {
       shift += 5;
     } while (b >= 0x20);
 
-    const dlat = (result & 1) ? ~(result >> 1) : result >> 1;
+    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
     lat += dlat;
 
     shift = 0;
@@ -50,7 +52,7 @@ function decodePolyline(encoded: string): google.maps.LatLngLiteral[] {
       shift += 5;
     } while (b >= 0x20);
 
-    const dlng = (result & 1) ? ~(result >> 1) : result >> 1;
+    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
     lng += dlng;
 
     points.push({ lat: lat / 1e5, lng: lng / 1e5 });
@@ -70,57 +72,19 @@ function isFiniteLatLng(lat?: number, lng?: number) {
   );
 }
 
-function samePoint(a: LatLng, b: LatLng) {
-  return Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lng - b.lng) < 1e-9;
-}
-
-/**
- * 連続重複を除去（A,A,B,B,C → A,B,C）
- */
-function dedupeConsecutive(points: LatLng[]): LatLng[] {
-  const out: LatLng[] = [];
-  for (const p of points) {
-    const last = out[out.length - 1];
-    if (!last || !samePoint(last, p)) out.push(p);
-  }
-  return out;
-}
-
-/**
- * intermediates を上限つきに間引く（Routes API の変ルート/失敗率を下げる）
- * - origin と destination は必ず残す
- */
-function downsampleWaypoints(points: LatLng[], maxTotal: number): LatLng[] {
-  if (points.length <= maxTotal) return points;
-  if (maxTotal < 2) return points.slice(0, 2);
-
-  const origin = points[0];
-  const dest = points[points.length - 1];
-
-  const keep = maxTotal - 2; // 中間点として残せる数
-  if (keep <= 0) return [origin, dest];
-
-  const intermediates = points.slice(1, -1);
-
-  // 等間隔サンプリング
-  const outInter: LatLng[] = [];
-  for (let i = 0; i < keep; i++) {
-    const idx = Math.round((i * (intermediates.length - 1)) / Math.max(1, keep - 1));
-    outInter.push(intermediates[idx]);
-  }
-
-  return [origin, ...outInter, dest];
-}
-
 export default function GoogleMapCanvas({
   selectedItemId,
   onPickPlace,
+  onMapTap,
   focus,
+  area,
   items,
 }: {
   selectedItemId: string | null;
   onPickPlace: (itemId: string | null, p: PickedPlace) => void;
+  onMapTap?: () => void;
   focus: MapFocus;
+  area: AreaFocus;
   items: ItineraryItem[];
 }) {
   const divRef = useRef<HTMLDivElement | null>(null);
@@ -129,16 +93,21 @@ export default function GoogleMapCanvas({
   const placesRef = useRef<google.maps.places.PlacesService | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
 
+  // day別ルート描画
   const polylinesRef = useRef<Map<number, google.maps.Polyline>>(new Map());
   const abortRef = useRef<Map<number, AbortController>>(new Map());
   const lastKeyRef = useRef<Map<number, string>>(new Map());
 
-  // debounce timers per day
-  const debounceRef = useRef<Map<number, any>>(new Map());
+  // カテゴリ面ハイライト
+  const areaCircleRef = useRef<google.maps.Circle | null>(null);
 
-  // props -> ref
+  // map ready tick（mapRef は state じゃないので、effect 再実行用）
+  const [readyTick, setReadyTick] = useState(0);
+
+  // loop防止：props -> ref
   const selectedIdRef = useRef<string | null>(selectedItemId);
   const onPickPlaceRef = useRef(onPickPlace);
+  const onMapTapRef = useRef(onMapTap);
 
   useEffect(() => {
     selectedIdRef.current = selectedItemId;
@@ -147,6 +116,10 @@ export default function GoogleMapCanvas({
   useEffect(() => {
     onPickPlaceRef.current = onPickPlace;
   }, [onPickPlace]);
+
+  useEffect(() => {
+    onMapTapRef.current = onMapTap;
+  }, [onMapTap]);
 
   // ① map init + POI click
   useEffect(() => {
@@ -173,40 +146,42 @@ export default function GoogleMapCanvas({
         mapRef.current = map;
         placesRef.current = new google.maps.places.PlacesService(map);
 
+        setReadyTick((n) => n + 1);
+
         map.addListener("click", (e: any) => {
+          // ★v3: マップをタップしたらメニューを格納（旅程は格納しない）
+          onMapTapRef.current?.();
+
           const places = placesRef.current;
           if (!places) return;
 
           const placeId = e?.placeId as string | undefined;
           if (!placeId) return;
 
-          places.getDetails(
-            { placeId, fields: ["place_id", "name", "url", "geometry"] },
-            (p, status) => {
-              if (!p || status !== "OK") return;
+          places.getDetails({ placeId, fields: ["place_id", "name", "url", "geometry"] }, (p, status) => {
+            if (!p || status !== "OK") return;
 
-              const loc = p.geometry?.location;
-              const lat = loc?.lat?.();
-              const lng = loc?.lng?.();
+            const loc = p.geometry?.location;
+            const lat = loc?.lat?.();
+            const lng = loc?.lng?.();
 
-              onPickPlaceRef.current(selectedIdRef.current, {
-                placeId: p.place_id ?? placeId,
-                name: p.name ?? "",
-                mapUrl: p.url ?? undefined,
-                lat: typeof lat === "number" ? lat : undefined,
-                lng: typeof lng === "number" ? lng : undefined,
+            onPickPlaceRef.current(selectedIdRef.current, {
+              placeId: p.place_id ?? placeId,
+              name: p.name ?? "",
+              mapUrl: p.url ?? "",
+              lat: typeof lat === "number" ? lat : undefined,
+              lng: typeof lng === "number" ? lng : undefined,
+            });
+
+            if (mapRef.current && typeof lat === "number" && typeof lng === "number") {
+              if (markerRef.current) markerRef.current.setMap(null);
+              markerRef.current = new google.maps.Marker({
+                map: mapRef.current,
+                position: { lat, lng },
+                title: p.name ?? "",
               });
-
-              if (mapRef.current && typeof lat === "number" && typeof lng === "number") {
-                if (markerRef.current) markerRef.current.setMap(null);
-                markerRef.current = new google.maps.Marker({
-                  map: mapRef.current,
-                  position: { lat, lng },
-                  title: p.name ?? "",
-                });
-              }
             }
-          );
+          });
         });
       })
       .catch((err) => {
@@ -218,7 +193,49 @@ export default function GoogleMapCanvas({
     };
   }, []);
 
-  // ② focus: query / latlng
+  // ② カテゴリ押下：面ハイライト
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (area.kind === "none") {
+      if (areaCircleRef.current) {
+        areaCircleRef.current.setMap(null);
+        areaCircleRef.current = null;
+      }
+      return;
+    }
+
+    if (!isFiniteLatLng(area.lat, area.lng)) return;
+
+    if (areaCircleRef.current) {
+      areaCircleRef.current.setMap(null);
+      areaCircleRef.current = null;
+    }
+
+    const circle = new google.maps.Circle({
+      map,
+      center: { lat: area.lat, lng: area.lng },
+      radius: Math.max(200, area.radiusMeters || 4000),
+      strokeOpacity: 0.9,
+      strokeWeight: 2,
+      fillOpacity: 0.12,
+      clickable: false,
+      zIndex: 50,
+    });
+
+    areaCircleRef.current = circle;
+
+    const bounds = circle.getBounds();
+    if (bounds) {
+      map.fitBounds(bounds, 24);
+    } else {
+      map.panTo({ lat: area.lat, lng: area.lng });
+      map.setZoom(12);
+    }
+  }, [area, readyTick]);
+
+  // ③ focus: query / latlng
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -238,6 +255,7 @@ export default function GoogleMapCanvas({
         position: { lat, lng },
         title: "Selected",
       });
+
       return;
     }
 
@@ -268,9 +286,7 @@ export default function GoogleMapCanvas({
       });
 
       const placeId = r0.place_id ?? undefined;
-      const mapUrl = placeId
-        ? `https://www.google.com/maps/place/?q=place_id:${placeId}`
-        : undefined;
+      const mapUrl = placeId ? `https://www.google.com/maps/place/?q=place_id:${placeId}` : "";
 
       onPickPlaceRef.current(selectedIdRef.current, {
         placeId,
@@ -282,36 +298,36 @@ export default function GoogleMapCanvas({
     });
   }, [focus]);
 
-  // ③ route plans (dayごと)
+  // ④ routes: day順に描画（day数は可変）
   const routePlans = useMemo(() => {
-    const byDay = new Map<number, LatLng[]>();
-    for (const day of [1, 2, 3, 4, 5]) byDay.set(day, []);
+    const days = Array.from(new Set(items.map((x) => Number(x.day)))).filter((n) => Number.isFinite(n) && n > 0);
+    days.sort((a, b) => a - b);
 
+    const byDay = new Map<number, { lat: number; lng: number }[]>();
+    for (const d of days) byDay.set(d, []);
+
+    // items配列順を保持
     for (const it of items) {
       if (it.type !== "spot") continue;
       if (!isFiniteLatLng(it.lat, it.lng)) continue;
-      byDay.get(it.day)?.push({ lat: it.lat!, lng: it.lng! });
+      const d = Number(it.day);
+      if (!byDay.has(d)) byDay.set(d, []);
+      byDay.get(d)!.push({ lat: it.lat!, lng: it.lng! });
     }
 
-    const plans: { day: number; waypoints: LatLng[]; key: string }[] = [];
-    let lastKnown: LatLng | null = null;
+    const plans: { day: number; waypoints: { lat: number; lng: number }[]; key: string }[] = [];
+    let lastKnown: { lat: number; lng: number } | null = null;
 
-    for (const day of [1, 2, 3, 4, 5]) {
+    for (const day of days) {
       const pts = byDay.get(day) ?? [];
+      let waypoints: { lat: number; lng: number }[] = pts;
 
-      // prev-day 終点 → 当日先頭へ接続
-      let waypoints: LatLng[] = pts;
       if (pts.length >= 1 && lastKnown) {
         const first = pts[0];
-        waypoints = samePoint(first, lastKnown) ? pts : [lastKnown, ...pts];
+        const same =
+          Math.abs(first.lat - lastKnown.lat) < 1e-9 && Math.abs(first.lng - lastKnown.lng) < 1e-9;
+        waypoints = same ? pts : [lastKnown, ...pts];
       }
-
-      // 連続重複除去
-      waypoints = dedupeConsecutive(waypoints);
-
-      // たくさんある時は間引く（徒歩ルートの変さ/失敗率軽減）
-      // maxTotal は好みで調整（例：12〜20くらい）
-      waypoints = downsampleWaypoints(waypoints, 14);
 
       if (pts.length >= 1) lastKnown = pts[pts.length - 1];
 
@@ -326,14 +342,27 @@ export default function GoogleMapCanvas({
     const map = mapRef.current;
     if (!map) return;
 
+    const activeDays = new Set(routePlans.map((p) => p.day));
+
+    // 消えた day の polyline を掃除
+    for (const [day, pl] of polylinesRef.current.entries()) {
+      if (!activeDays.has(day)) {
+        pl.setMap(null);
+        polylinesRef.current.delete(day);
+      }
+    }
+
+    // day ごとに更新
     for (const { day, waypoints, key } of routePlans) {
       const prevKey = lastKeyRef.current.get(day);
       if (prevKey === key) continue;
       lastKeyRef.current.set(day, key);
 
-      // waypoints が2未満なら線を消して終了（fetchしない）
+      abortRef.current.get(day)?.abort();
+      const controller = new AbortController();
+      abortRef.current.set(day, controller);
+
       if (waypoints.length < 2) {
-        abortRef.current.get(day)?.abort();
         const pl = polylinesRef.current.get(day);
         if (pl) {
           pl.setMap(null);
@@ -342,81 +371,56 @@ export default function GoogleMapCanvas({
         continue;
       }
 
-      // debounce（連続更新のまとめ）
-      const oldTimer = debounceRef.current.get(day);
-      if (oldTimer) clearTimeout(oldTimer);
-
-      const timer = setTimeout(() => {
-        // cancel previous fetch for this day
-        abortRef.current.get(day)?.abort();
-        const controller = new AbortController();
-        abortRef.current.set(day, controller);
-
-        fetch("/api/walkroute", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ waypoints }),
-          signal: controller.signal,
+      fetch("/api/walkroute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waypoints }),
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({} as any));
+          if (!res.ok) throw new Error(data?.error ?? `walkroute HTTP ${res.status}`);
+          return data as any;
         })
-          .then(async (res) => {
-            const data = await res.json().catch(() => ({} as any));
-            if (!res.ok) {
-              throw new Error(data?.error ?? `walkroute HTTP ${res.status}`);
+        .then((data) => {
+          if (controller.signal.aborted) return;
+
+          const poly = String(data?.polyline ?? "");
+          if (!data?.ok || !poly) {
+            const pl = polylinesRef.current.get(day);
+            if (pl) {
+              pl.setMap(null);
+              polylinesRef.current.delete(day);
             }
-            return data as any;
-          })
-          .then((data) => {
-            if (controller.signal.aborted) return;
+            return;
+          }
 
-            const poly = String(data?.polyline ?? "");
-            if (!data?.ok || !poly) {
-              // polyline が空なら消す（ここは好み）
-              const pl = polylinesRef.current.get(day);
-              if (pl) {
-                pl.setMap(null);
-                polylinesRef.current.delete(day);
-              }
-              return;
-            }
+          const path = decodePolyline(poly);
+          const color = dayColor(day);
 
-            const path = decodePolyline(poly);
-            const color = dayColor(day);
-
-            let pl = polylinesRef.current.get(day);
-            if (!pl) {
-              pl = new google.maps.Polyline({
-                map,
-                path,
-                strokeColor: color,
-                strokeOpacity: 0.95,
-                strokeWeight: 5,
-                geodesic: true,
-                zIndex: 100 + day,
-              });
-              polylinesRef.current.set(day, pl);
-            } else {
-              pl.setOptions({ strokeColor: color, zIndex: 100 + day });
-              pl.setPath(path);
-              pl.setMap(map);
-            }
-          })
-          .catch((err) => {
-            if (err?.name === "AbortError") return;
-            console.error("[walkroute] failed day", day, err);
-          });
-      }, 300);
-
-      debounceRef.current.set(day, timer);
+          let pl = polylinesRef.current.get(day);
+          if (!pl) {
+            pl = new google.maps.Polyline({
+              map,
+              path,
+              strokeColor: color,
+              strokeOpacity: 0.95,
+              strokeWeight: 5,
+              geodesic: true,
+              zIndex: 100 + day,
+            });
+            polylinesRef.current.set(day, pl);
+          } else {
+            pl.setOptions({ strokeColor: color, zIndex: 100 + day });
+            pl.setPath(path);
+            pl.setMap(map);
+          }
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          console.error("[walkroute] failed day", day, err);
+        });
     }
-
-    return () => {
-      // cleanup timers on unmount
-      for (const t of debounceRef.current.values()) clearTimeout(t);
-      debounceRef.current.clear();
-      // abort in-flight
-      for (const c of abortRef.current.values()) c.abort();
-      abortRef.current.clear();
-    };
   }, [routePlans]);
 
   return <div ref={divRef} className="absolute inset-0" />;

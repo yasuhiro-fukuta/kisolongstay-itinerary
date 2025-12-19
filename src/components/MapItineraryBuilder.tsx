@@ -4,15 +4,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
-import GoogleMapCanvas, { type MapFocus } from "@/components/GoogleMapCanvas";
+import GoogleMapCanvas, { type AreaFocus, type MapFocus } from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
 import LeftDrawer from "@/components/LeftDrawer";
 import ItineraryPanel from "@/components/ItineraryPanel";
-import ChatCorner from "@/components/ChatCorner";
 import AuthModal from "@/components/AuthModal";
 
 import { auth } from "@/lib/firebaseClient";
-import { makeInitialItems, type DayIndex, type ItineraryItem } from "@/lib/itinerary";
+import { makeEmptySpot, makeInitialItems, type ItineraryItem } from "@/lib/itinerary";
 import {
   saveItinerary,
   listItineraries,
@@ -20,14 +19,8 @@ import {
   type SavedItineraryMeta,
 } from "@/lib/itineraryStore";
 
-import {
-  fetchLeftMenuItems,
-  buildCategoryOrder,
-  groupLeftMenuByCategory,
-  type LeftMenuItem,
-} from "@/lib/leftMenu";
-
-import { fetchSampleTourRows } from "@/lib/sampleTour";
+import { loadLeftMenuData, type LeftMenuData, type MenuRow } from "@/lib/menuData";
+import { loadSampleTourData, type SampleTourData } from "@/lib/sampleTourData";
 
 function yyyyMmDd(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -49,14 +42,6 @@ function makeNonce() {
     : `${Date.now()}-${Math.random()}`;
 }
 
-function makeItemId(day: DayIndex) {
-  const suffix =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `${day}:spot:${suffix}`;
-}
-
 async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng: number } | null> {
   const url = String(mapUrl ?? "").trim();
   if (!url) return null;
@@ -76,27 +61,44 @@ async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng
   return null;
 }
 
-const SAMPLE_TOUR_NAMES = [
-  "春の中山道北上ツアー",
-  "夏の渓谷ずぶ濡れツアー",
-  "秋の中山道南下ツアー",
-  "冬の温泉ぬくぬくツアー",
-] as const;
+// v3: カテゴリ→面ハイライト対象URL
+const CATEGORY_AREA_URL: Record<string, string> = {
+  "妻籠": "https://maps.app.goo.gl/fmeEraZyHR6RZtLu6",
+  "蘭": "https://maps.app.goo.gl/fmeEraZyHR6RZtLu6",
+  "田立": "https://maps.app.goo.gl/qLh4irvfEX8erjSJA",
+  "南木曽": "https://maps.app.goo.gl/sRsb17U2SomSLN989",
+  "与川": "https://maps.app.goo.gl/sRsb17U2SomSLN989",
+  "柿其": "https://maps.app.goo.gl/sRsb17U2SomSLN989",
+  "阿寺": "https://maps.app.goo.gl/LstBYkJ46PobxDps8",
+  "野尻": "https://maps.app.goo.gl/LstBYkJ46PobxDps8",
+  "須原": "https://maps.app.goo.gl/nnaGx36Nwgqtewvz9",
+};
 
 export default function MapItineraryBuilder() {
+  // v3: メニュー下/旅程上
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [itineraryOpen, setItineraryOpen] = useState(false);
+
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(selectedItemId);
+  useEffect(() => {
+    selectedIdRef.current = selectedItemId;
+  }, [selectedItemId]);
+
   const [items, setItems] = useState<ItineraryItem[]>(() => makeInitialItems());
 
   const [baseDate, setBaseDate] = useState<string>(() => yyyyMmDd(new Date()));
-  const dates = useMemo(() => {
-    return Array.from({ length: 5 }, (_, i) => addDays(baseDate, i));
-  }, [baseDate]);
+  const dayCount = useMemo(() => {
+    const maxDay = Math.max(1, ...items.map((x) => Number(x.day) || 1));
+    return maxDay;
+  }, [items]);
+
+  const dates = useMemo(() => Array.from({ length: dayCount }, (_, i) => addDays(baseDate, i)), [baseDate, dayCount]);
 
   const [focus, setFocus] = useState<MapFocus>({ kind: "none" });
+  const [area, setArea] = useState<AreaFocus>({ kind: "none" });
 
-  const [itineraryOpen, setItineraryOpen] = useState(true);
-  const [chatOpen, setChatOpen] = useState(false);
-
+  // Auth + 保存
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 
@@ -105,18 +107,27 @@ export default function MapItineraryBuilder() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [saveAfterLogin, setSaveAfterLogin] = useState(false);
 
-  // left_menu.csv
-  const [menuItems, setMenuItems] = useState<LeftMenuItem[]>([]);
-  const menuLoadedRef = useRef(false);
+  // CSVデータ
+  const [leftMenuData, setLeftMenuData] = useState<LeftMenuData | null>(null);
+  const [sampleData, setSampleData] = useState<SampleTourData | null>(null);
 
-  // request guards
+  // resolve多重防止
   const resolvingRef = useRef(0);
-  const sampleLoadRef = useRef(0);
 
   const userLabel = useMemo(() => {
     if (!user) return null;
     return user.displayName || user.email || "ログインユーザー";
   }, [user]);
+
+  useEffect(() => {
+    loadLeftMenuData()
+      .then(setLeftMenuData)
+      .catch((e) => console.error("left_menu.csv load failed:", e));
+
+    loadSampleTourData()
+      .then(setSampleData)
+      .catch((e) => console.error("sampletour.csv load failed:", e));
+  }, []);
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
@@ -129,31 +140,6 @@ export default function MapItineraryBuilder() {
       }
     });
   }, []);
-
-  // Load left_menu.csv once
-  useEffect(() => {
-    if (menuLoadedRef.current) return;
-    menuLoadedRef.current = true;
-
-    fetchLeftMenuItems()
-      .then((list) => setMenuItems(list))
-      .catch((e: any) => {
-        console.error("[left_menu.csv] load failed:", e);
-        setSaveToast("left_menu.csv の読み込みに失敗しました\n" + String(e?.message ?? e ?? ""));
-        setTimeout(() => setSaveToast(null), 2500);
-      });
-  }, []);
-
-  const menuCategories = useMemo(() => buildCategoryOrder(menuItems), [menuItems]);
-  const menuByCategory = useMemo(
-    () => groupLeftMenuByCategory(menuItems, menuCategories),
-    [menuItems, menuCategories]
-  );
-  const menuById = useMemo(() => {
-    const m = new Map<string, LeftMenuItem>();
-    for (const it of menuItems) m.set(String(it.menuid), it);
-    return m;
-  }, [menuItems]);
 
   const refreshList = async (u: User) => {
     const list = await listItineraries(u.uid);
@@ -185,8 +171,9 @@ export default function MapItineraryBuilder() {
     await doSave(user);
   };
 
-  const fallbackTargetId = () => items.find((i) => i.day === 1)?.id ?? null;
+  const fallbackTargetId = () => items[0]?.id ?? null;
 
+  // 地図クリックで拾ったものを反映
   const onPickPlace = (itemId: string | null, place: any) => {
     const targetId = itemId ?? selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
@@ -196,12 +183,11 @@ export default function MapItineraryBuilder() {
         it.id === targetId
           ? {
               ...it,
-              name: place.name ?? it.name,
-              mapUrl: place.mapUrl ?? it.mapUrl,
-              // 地図から拾った場合、HP/OTAは不明なのでクリア（残すと事故る）
-              hpUrl: "",
+              name: String(place.name ?? it.name ?? ""),
+              mapUrl: String(place.mapUrl ?? it.mapUrl ?? ""),
+              placeId: String(place.placeId ?? it.placeId ?? ""),
+              hpUrl: "",  // mapクリックでHP/OTAは自動付与しない
               otaUrl: "",
-              placeId: place.placeId ?? it.placeId,
               lat: typeof place.lat === "number" ? place.lat : it.lat,
               lng: typeof place.lng === "number" ? place.lng : it.lng,
             }
@@ -210,14 +196,15 @@ export default function MapItineraryBuilder() {
     );
 
     setSelectedItemId(targetId);
+    setMenuOpen(false); // マップタップ時に閉じる要件の延長（ここで確実に閉じる）
   };
 
-  // ★左メニュー（CSV）からの選択
-  const onSelectFromDrawer = async (p: LeftMenuItem) => {
+  // v3: 行を選んで、メニューから入れる
+  const onSelectFromMenu = async (p: MenuRow) => {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
 
-    // 先にUI反映（Map/HP/OTA が空でもOK。無効扱いしない）
+    // UI即反映（Map/HP/OTA 空でも有効）
     setItems((prev) =>
       prev.map((it) =>
         it.id === targetId
@@ -236,36 +223,20 @@ export default function MapItineraryBuilder() {
     );
     setSelectedItemId(targetId);
 
-    const mapUrl = String(p.mapUrl ?? "").trim();
-    if (!mapUrl) {
-      // Mapが無いサービスは「文字が入ればOK」なので、地図を勝手に動かさない
-      return;
-    }
-
+    // mapUrl があれば lat/lng を確定
     const myReq = ++resolvingRef.current;
-    const loc = await resolveMapUrlToLatLng(mapUrl);
+    const loc = p.mapUrl ? await resolveMapUrlToLatLng(p.mapUrl) : null;
     if (myReq !== resolvingRef.current) return;
 
-    if (!loc) {
-      // ここで名前検索フォールバックをしない（同名別ヒット事故を増やす）
-      return;
+    if (loc) {
+      setItems((prev) =>
+        prev.map((it) => (it.id === targetId ? { ...it, lat: loc.lat, lng: loc.lng } : it))
+      );
+      setFocus({ kind: "latlng", lat: loc.lat, lng: loc.lng, nonce: makeNonce() });
     }
-
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === targetId
-          ? {
-              ...it,
-              lat: loc.lat,
-              lng: loc.lng,
-            }
-          : it
-      )
-    );
-
-    setFocus({ kind: "latlng", lat: loc.lat, lng: loc.lng, nonce: makeNonce() });
   };
 
+  // 検索バー（任意：残す）
   const onSearch = (query: string) => {
     const q = query.trim();
     if (!q) return;
@@ -273,27 +244,113 @@ export default function MapItineraryBuilder() {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
 
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === targetId
-          ? {
-              ...it,
-              name: q,
-              mapUrl: "",
-              hpUrl: "",
-              otaUrl: "",
-              placeId: "",
-              lat: undefined,
-              lng: undefined,
-            }
-          : it
-      )
-    );
-
     setSelectedItemId(targetId);
     setFocus({ kind: "query", query: q, nonce: makeNonce() });
   };
 
+  // v3: Day +（割り込み）
+  const insertDayAfter = (day: number) => {
+    const d = Math.max(1, Math.trunc(day || 1));
+    const newDay = d + 1;
+    const newItem = makeEmptySpot(newDay);
+
+    setItems((prev) => {
+      // まず d より後ろを繰り下げ
+      const shifted = prev.map((it) => (it.day > d ? { ...it, day: it.day + 1 } : it));
+
+      // day d の末尾の直後に挿入
+      let insertAt = shifted.length;
+      for (let i = shifted.length - 1; i >= 0; i--) {
+        if (shifted[i].day === d) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+
+      const next = [...shifted];
+      next.splice(insertAt, 0, newItem);
+      return next;
+    });
+
+    setSelectedItemId(newItem.id);
+    setItineraryOpen(true);
+  };
+
+  // v3: Day -（Dayごと削除、詰める）
+  const removeDay = (day: number) => {
+    const d = Math.max(1, Math.trunc(day || 1));
+
+    setItems((prev) => {
+      const removed = prev.filter((it) => it.day !== d);
+      const shifted = removed.map((it) => (it.day > d ? { ...it, day: it.day - 1 } : it));
+
+      if (!shifted.length) {
+        const init = makeInitialItems(1, 1);
+        setSelectedItemId(init[0]?.id ?? null);
+        return init;
+      }
+
+      // selected が消えたら近い行を選ぶ
+      const sel = selectedIdRef.current;
+      const exists = sel ? shifted.some((it) => it.id === sel) : false;
+      if (!exists) setSelectedItemId(shifted[0]?.id ?? null);
+
+      return shifted;
+    });
+  };
+
+  // v3: 行 +（割り込み）
+  const insertRowAfter = (itemId: string) => {
+    const newId = makeEmptySpot(1).id; // idだけ使う
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.id === itemId);
+      if (idx < 0) return prev;
+
+      const day = prev[idx].day;
+      const newItem = makeEmptySpot(day);
+      (newItem as any).id = newId;
+
+      const next = [...prev];
+      next.splice(idx + 1, 0, newItem);
+      setSelectedItemId(newItem.id);
+      return next;
+    });
+    setItineraryOpen(true);
+  };
+
+  // v3: 行 -（削除。ただしそのDayの最後の1行は削除せず内容クリア）
+  const removeRow = (itemId: string) => {
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.id === itemId);
+      if (idx < 0) return prev;
+
+      const day = prev[idx].day;
+      const dayItems = prev.filter((x) => x.day === day);
+
+      // 最後の1行は「削除」せず内容クリア（行+/-が消えないように）
+      if (dayItems.length <= 1) {
+        const next = prev.map((it) =>
+          it.id === itemId
+            ? { ...it, name: "", mapUrl: "", hpUrl: "", otaUrl: "", placeId: "", lat: undefined, lng: undefined }
+            : it
+        );
+        return next;
+      }
+
+      const next = prev.filter((it) => it.id !== itemId);
+
+      // 選択行を消したら、近い行に寄せる
+      const sel = selectedIdRef.current;
+      if (sel === itemId) {
+        const fallback = next[Math.min(idx, next.length - 1)]?.id ?? next[0]?.id ?? null;
+        setSelectedItemId(fallback);
+      }
+
+      return next;
+    });
+  };
+
+  // 保存済み旅程ロード
   const onLoadItinerary = async (id: string) => {
     if (!user) {
       setAuthOpen(true);
@@ -301,191 +358,99 @@ export default function MapItineraryBuilder() {
     }
     try {
       const loaded = await loadItinerary(user.uid, id);
-
-      // baseDate は dates[0] を採用（なければ維持）
       if (loaded.dates?.[0]) setBaseDate(String(loaded.dates[0]));
-
       setItems(loaded.items);
       setSaveToast("旅程をロードしました");
       setTimeout(() => setSaveToast(null), 1500);
+      setItineraryOpen(true);
     } catch (e: any) {
       setSaveToast("ロードに失敗しました\n" + String(e?.message ?? e ?? ""));
     }
   };
 
-  const onAddItem = (day: DayIndex) => {
-    const newId = makeItemId(day);
+  // v3: サンプルツアーロード（left_menu.csvの menuid を参照して反映）
+  const onLoadSampleTour = async (tourName: string) => {
+    if (!leftMenuData || !sampleData) return;
 
-    setItems((prev) => {
-      const newItem: ItineraryItem = {
-        id: newId,
-        day,
-        type: "spot",
-        name: "",
-        price: "",
-        mapUrl: "",
-        hpUrl: "",
-        otaUrl: "",
-        placeId: "",
-        lat: undefined,
-        lng: undefined,
-      };
+    const rows = sampleData.byTour.get(tourName) ?? [];
+    if (!rows.length) return;
 
-      // insert after last item in same day
-      let insertAt = prev.length;
-      for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i].day === day) {
-          insertAt = i + 1;
-          break;
+    const maxDay = Math.max(1, ...rows.map((r) => r.day));
+    const maxRowByDay = new Map<number, number>();
+    for (const r of rows) {
+      maxRowByDay.set(r.day, Math.max(maxRowByDay.get(r.day) ?? 1, r.rownum));
+    }
+
+    // 必要な Day/行数 を先に確保
+    const next: ItineraryItem[] = [];
+    for (let d = 1; d <= maxDay; d++) {
+      const need = Math.max(1, maxRowByDay.get(d) ?? 1);
+      for (let i = 0; i < need; i++) next.push(makeEmptySpot(d));
+    }
+
+    // day -> rows の参照配列を作る
+    const bucket = new Map<number, ItineraryItem[]>();
+    for (const it of next) {
+      if (!bucket.has(it.day)) bucket.set(it.day, []);
+      bucket.get(it.day)!.push(it);
+    }
+
+    // menuid 参照で内容を流し込む
+    for (const r of rows) {
+      const target = bucket.get(r.day)?.[r.rownum - 1];
+      const menu = leftMenuData.byId.get(r.menuid);
+      if (!target || !menu) continue;
+
+      target.name = menu.title ?? "";
+      target.mapUrl = menu.mapUrl ?? "";
+      target.hpUrl = menu.hpUrl ?? "";
+      target.otaUrl = menu.otaUrl ?? "";
+      target.placeId = "";
+      target.lat = undefined;
+      target.lng = undefined;
+    }
+
+    // mapUrl があるものは lat/lng を解決（無い行はそのまま有効）
+    const cache = new Map<string, { lat: number; lng: number } | null>();
+    await Promise.all(
+      next.map(async (it) => {
+        const u = String(it.mapUrl ?? "").trim();
+        if (!u) return;
+        if (!cache.has(u)) cache.set(u, await resolveMapUrlToLatLng(u));
+        const loc = cache.get(u);
+        if (loc) {
+          it.lat = loc.lat;
+          it.lng = loc.lng;
         }
-      }
-      const next = [...prev];
-      next.splice(insertAt, 0, newItem);
-      return next;
-    });
+      })
+    );
 
-    setSelectedItemId(newId);
+    setItems(next);
+    setSelectedItemId(next[0]?.id ?? null);
     setItineraryOpen(true);
+    setMenuOpen(false);
+    setSaveToast(`サンプルツアーをロードしました\n${tourName}`);
+    setTimeout(() => setSaveToast(null), 1500);
   };
 
-  // ★サンプルツアーロード（sampletour.csv → menuid → left_menu.csv）
-  const onLoadSampleTour = async (tourName: string) => {
-    if (menuItems.length === 0) {
-      setSaveToast("left_menu.csv が未読み込みです（/public/data/left_menu.csv を確認）");
-      setTimeout(() => setSaveToast(null), 2500);
+  // v3: カテゴリ押下 → 面をアクティブにする（旅程は触らない）
+  const onCategoryPicked = async (category: string) => {
+    const url = CATEGORY_AREA_URL[String(category ?? "").trim()];
+    if (!url) {
+      setArea({ kind: "none" });
       return;
     }
 
-    const myReq = ++sampleLoadRef.current;
-    setItineraryOpen(true);
-    setSaveToast(null);
+    const loc = await resolveMapUrlToLatLng(url);
+    if (!loc) return;
 
-    try {
-      const rows = await fetchSampleTourRows();
-      if (myReq !== sampleLoadRef.current) return;
-
-      const plan = rows.filter((r) => r.tour === tourName);
-      if (plan.length === 0) {
-        setSaveToast(`sampletour.csv に「${tourName}」の行がありません`);
-        setTimeout(() => setSaveToast(null), 2500);
-        return;
-      }
-
-      // 1) dayごとの必要行数（rownum最大）を計算（足りなければ補う）
-      const need: Record<DayIndex, number> = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
-      for (const r of plan) {
-        need[r.day] = Math.max(need[r.day], r.rownum);
-      }
-
-      // 2) 空の旅程を dayごとに必要数作る
-      const byDay: Record<DayIndex, ItineraryItem[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] };
-      for (const day of [1, 2, 3, 4, 5] as const) {
-        for (let i = 0; i < need[day]; i++) {
-          byDay[day].push({
-            id: makeItemId(day),
-            day,
-            type: "spot",
-            name: "",
-            price: "",
-            mapUrl: "",
-            hpUrl: "",
-            otaUrl: "",
-            placeId: "",
-            lat: undefined,
-            lng: undefined,
-          });
-        }
-      }
-
-      // 3) planを menuid で left_menu.csv から引いて埋める（Map/HP/OTA空でもOK）
-      for (const r of plan) {
-        const idx = r.rownum - 1;
-        if (idx < 0) continue;
-
-        while (byDay[r.day].length <= idx) {
-          // 念のため（need計算済みだが、変なデータでも落ちないように）
-          byDay[r.day].push({
-            id: makeItemId(r.day),
-            day: r.day,
-            type: "spot",
-            name: "",
-            price: "",
-            mapUrl: "",
-            hpUrl: "",
-            otaUrl: "",
-            placeId: "",
-            lat: undefined,
-            lng: undefined,
-          });
-        }
-
-        const src = menuById.get(String(r.menuid));
-        if (!src) {
-          // 見つからない menuid は空のまま（落とさない）
-          continue;
-        }
-
-        byDay[r.day][idx] = {
-          ...byDay[r.day][idx],
-          name: src.title ?? "",
-          mapUrl: src.mapUrl ?? "",
-          hpUrl: src.hpUrl ?? "",
-          otaUrl: src.otaUrl ?? "",
-          placeId: "",
-          lat: undefined,
-          lng: undefined,
-        };
-      }
-
-      const nextItems = [...byDay[1], ...byDay[2], ...byDay[3], ...byDay[4], ...byDay[5]];
-      setItems(nextItems);
-
-      const firstNonEmpty = nextItems.find((x) => String(x.name ?? "").trim())?.id ?? nextItems[0]?.id ?? null;
-      setSelectedItemId(firstNonEmpty);
-
-      // 4) mapUrlがある行だけ lat/lng を resolve（並列は控えめに）
-      const urls = Array.from(
-        new Set(nextItems.map((x) => String(x.mapUrl ?? "").trim()).filter(Boolean))
-      );
-
-      if (urls.length) {
-        const resolved = new Map<string, { lat: number; lng: number }>();
-
-        const concurrency = 5;
-        let cursor = 0;
-
-        const worker = async () => {
-          while (cursor < urls.length) {
-            const u = urls[cursor++];
-            const loc = await resolveMapUrlToLatLng(u);
-            if (myReq !== sampleLoadRef.current) return;
-            if (loc) resolved.set(u, loc);
-          }
-        };
-
-        await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
-        if (myReq !== sampleLoadRef.current) return;
-
-        setItems((prev) =>
-          prev.map((it) => {
-            const u = String(it.mapUrl ?? "").trim();
-            if (!u) return it;
-            const loc = resolved.get(u);
-            return loc ? { ...it, lat: loc.lat, lng: loc.lng } : it;
-          })
-        );
-
-        const firstLoc = urls.map((u) => resolved.get(u)).find(Boolean);
-        if (firstLoc) {
-          setFocus({ kind: "latlng", lat: firstLoc.lat, lng: firstLoc.lng, nonce: makeNonce() });
-        }
-      }
-
-      setSaveToast(`サンプルツアーをロードしました\n${tourName}`);
-      setTimeout(() => setSaveToast(null), 1500);
-    } catch (e: any) {
-      setSaveToast("サンプルツアーのロードに失敗しました\n" + String(e?.message ?? e ?? ""));
-    }
+    setArea({
+      kind: "circle",
+      lat: loc.lat,
+      lng: loc.lng,
+      radiusMeters: 4500, // 「面」なので固定半径。必要ならカテゴリ別に調整可能
+      nonce: makeNonce(),
+    });
   };
 
   const saveButtonText = user
@@ -501,78 +466,86 @@ export default function MapItineraryBuilder() {
       <GoogleMapCanvas
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
+        onMapTap={() => setMenuOpen(false)} // ★v3 要件3
         focus={focus}
+        area={area}
         items={items}
       />
 
-      <LeftDrawer
-        menuCategories={menuCategories}
-        menuByCategory={menuByCategory}
-        onSelectMenuItem={onSelectFromDrawer}
-        sampleTourNames={[...SAMPLE_TOUR_NAMES]}
-        onLoadSampleTour={onLoadSampleTour}
-        savedItineraries={savedList}
-        onLoadItinerary={onLoadItinerary}
-        userLabel={userLabel}
-        onRequestLogin={() => setAuthOpen(true)}
-      />
-
+      {/* 検索（残す：必要なら後で移設しても良い） */}
       <MapSearchBar onSearch={onSearch} />
 
+      {/* v3: 旅程（上から出る） */}
+      <div
+        className={[
+          "absolute inset-x-0 top-0 z-[65]",
+          "h-[33vh]",
+          "transition-transform duration-300 ease-out",
+          itineraryOpen ? "translate-y-0 pointer-events-auto" : "-translate-y-full pointer-events-none",
+        ].join(" ")}
+      >
+        <div className="h-full rounded-b-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
+          <ItineraryPanel
+            items={items}
+            baseDate={baseDate}
+            onChangeBaseDate={setBaseDate}
+            selectedItemId={selectedItemId}
+            onSelectItem={(id) => setSelectedItemId(id)}
+            onInsertDayAfter={insertDayAfter}
+            onRemoveDay={removeDay}
+            onInsertRowAfter={insertRowAfter}
+            onRemoveRow={removeRow}
+            onSave={onSaveClick}
+            saveButtonText={saveButtonText}
+            saveDisabled={saving}
+            userLabel={userLabel}
+          />
+        </div>
+      </div>
+
+      {/* v3: メニュー（下から出る） */}
+      {leftMenuData ? (
+        <LeftDrawer
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          categories={leftMenuData.categories}
+          byCategory={leftMenuData.byCategory}
+          onCategoryPicked={onCategoryPicked}
+          onSelectPlace={onSelectFromMenu}
+          sampleTours={sampleData?.tours ?? []}
+          onLoadSampleTour={onLoadSampleTour}
+          savedItineraries={savedList}
+          onLoadItinerary={onLoadItinerary}
+          userLabel={userLabel}
+          onRequestLogin={() => setAuthOpen(true)}
+        />
+      ) : null}
+
+      {/* v3: 右下トグルボタン（メニュー） */}
+      <button
+        onClick={() => setMenuOpen((v) => !v)}
+        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
+        title="メニュー"
+      >
+        {menuOpen ? "×" : "≡"}
+      </button>
+
+      {/* v3: 右下トグルボタン（旅程）※上に配置 */}
       <button
         onClick={() => setItineraryOpen((v) => !v)}
-        className="absolute right-4 top-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
+        className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
         title="旅程"
       >
         📝
       </button>
 
-      {itineraryOpen && (
-        <div className="absolute right-4 top-16 z-[65] w-[520px] max-w-[92vw] h-[76vh] pointer-events-auto">
-          <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
-            <ItineraryPanel
-              items={items}
-              dates={dates}
-              baseDate={baseDate}
-              onChangeBaseDate={setBaseDate}
-              selectedItemId={selectedItemId}
-              onSelectItem={(id) => setSelectedItemId(id)}
-              onChangeItem={(id, patch) =>
-                setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)))
-              }
-              onAddItem={onAddItem}
-              onSave={onSaveClick}
-              saveButtonText={saveButtonText}
-              saveDisabled={saving}
-              userLabel={userLabel}
-            />
-          </div>
-        </div>
-      )}
-
-      <button
-        onClick={() => setChatOpen((v) => !v)}
-        className="absolute right-4 bottom-4 z-[70] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-10 h-10 grid place-items-center text-neutral-100"
-        title="チャット"
-      >
-        💬
-      </button>
-
-      {chatOpen && (
-        <div className="absolute right-4 bottom-16 z-[65] w-[420px] max-w-[92vw] h-[280px] pointer-events-auto">
-          <div className="h-full rounded-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
-            <ChatCorner />
-          </div>
-        </div>
-      )}
-
-      {saveToast && (
-        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-[80] pointer-events-none">
+      {saveToast ? (
+        <div className="absolute left-1/2 top-24 -translate-x-1/2 z-[90] pointer-events-none">
           <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 shadow px-3 py-2 text-xs whitespace-pre-wrap text-neutral-100 backdrop-blur pointer-events-auto">
             {saveToast}
           </div>
         </div>
-      )}
+      ) : null}
 
       <AuthModal
         open={authOpen}

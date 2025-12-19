@@ -1,14 +1,5 @@
 // src/lib/itineraryStore.ts
-
-import {
-  addDoc,
-  collection,
-  getDoc,
-  getDocs,
-  query,
-  where,
-  doc,
-} from "firebase/firestore";
+import { addDoc, collection, getDoc, getDocs, query, where, doc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { makeInitialItems, type ItineraryItem } from "@/lib/itinerary";
 
@@ -28,40 +19,25 @@ function buildTitle(date: Date) {
   )}:${pad(date.getMinutes())}`;
 }
 
-/**
- * Firestore は undefined を保存できないので、
- * 数値として正しいときだけフィールドを付与する。
- */
-function addLatLngIfValid(
-  obj: Record<string, any>,
-  lat: any,
-  lng: any
-): Record<string, any> {
+function addLatLngIfValid(obj: Record<string, any>, lat: any, lng: any): Record<string, any> {
   const out: Record<string, any> = { ...obj };
 
-  if (typeof lat === "number" && Number.isFinite(lat) && Math.abs(lat) <= 90) {
-    out.lat = lat;
-  }
-  if (typeof lng === "number" && Number.isFinite(lng) && Math.abs(lng) <= 180) {
-    out.lng = lng;
-  }
+  if (typeof lat === "number" && Number.isFinite(lat) && Math.abs(lat) <= 90) out.lat = lat;
+  if (typeof lng === "number" && Number.isFinite(lng) && Math.abs(lng) <= 180) out.lng = lng;
 
   return out;
 }
 
-/**
- * 読み込み時：null/undefined/空文字は undefined 扱いにする（0 に化けさせない）
- */
 function numOrUndef(v: any): number | undefined {
   if (v === null || v === undefined || v === "") return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
 }
 
-function normalizeDay(v: unknown): 1 | 2 | 3 | 4 | 5 | null {
-  const n = Number(v);
-  if (n === 1 || n === 2 || n === 3 || n === 4 || n === 5) return n;
-  return null;
+function normalizeDay(v: unknown): number | null {
+  const n = Math.trunc(Number(v));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
 }
 
 export async function saveItinerary(uid: string, dates: string[], items: ItineraryItem[]) {
@@ -70,27 +46,24 @@ export async function saveItinerary(uid: string, dates: string[], items: Itinera
   const savedAtMs = now.getTime();
 
   const safeItems = items.map((x) => {
-    // まず undefined を絶対に含まない形でベースを作る
     const base = {
       id: String(x.id),
       day: Number(x.day),
       type: "spot",
       name: String(x.name ?? ""),
-      price: String(x.price ?? ""),
 
       mapUrl: String(x.mapUrl ?? ""),
-      hpUrl: String((x as any).hpUrl ?? ""),
-      otaUrl: String((x as any).otaUrl ?? ""),
+      hpUrl: String(x.hpUrl ?? ""),
+      otaUrl: String(x.otaUrl ?? ""),
 
       placeId: String(x.placeId ?? ""),
     };
 
-    // lat/lng は「数値として妥当なときだけ」付与（undefined は絶対入れない）
     return addLatLngIfValid(base, x.lat, x.lng);
   });
 
   const ref = await addDoc(collection(db, "itineraries"), {
-    schemaVersion: 4,
+    schemaVersion: 4, // v3で増減Day/リンク等があるので更新
     uid,
     title,
     savedAtMs,
@@ -118,16 +91,12 @@ export async function listItineraries(uid: string): Promise<SavedItineraryMeta[]
   return list;
 }
 
-export async function loadItinerary(
-  uid: string,
-  id: string
-): Promise<{ dates: string[]; items: ItineraryItem[] }> {
+export async function loadItinerary(uid: string, id: string): Promise<{ dates: string[]; items: ItineraryItem[] }> {
   const ref = doc(db, "itineraries", id);
   const snap = await getDoc(ref);
 
   if (!snap.exists()) throw new Error("旅程が存在しません");
   const data: any = snap.data();
-
   if (data.uid !== uid) throw new Error("権限がありません");
 
   const dates = Array.isArray(data?.dates) ? data.dates.map((v: any) => String(v ?? "")) : [];
@@ -139,16 +108,13 @@ export async function loadItinerary(
         if (!day) return null;
 
         return {
-          id: String(raw?.id ?? `${day}:spot:${Math.random().toString(36).slice(2)}`),
+          id: String(raw?.id ?? `spot:${Math.random().toString(36).slice(2)}`),
           day,
           type: "spot",
           name: String(raw?.name ?? ""),
-          price: String(raw?.price ?? ""),
-
           mapUrl: String(raw?.mapUrl ?? ""),
           hpUrl: String(raw?.hpUrl ?? ""),
           otaUrl: String(raw?.otaUrl ?? ""),
-
           placeId: String(raw?.placeId ?? ""),
           lat: numOrUndef(raw?.lat),
           lng: numOrUndef(raw?.lng),
