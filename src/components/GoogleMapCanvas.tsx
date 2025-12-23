@@ -99,7 +99,29 @@ export default function GoogleMapCanvas({
   const lastKeyRef = useRef<Map<number, string>>(new Map());
 
   // カテゴリ面ハイライト
-  const areaCircleRef = useRef<google.maps.Circle | null>(null);
+  const areaOutlineRef = useRef<google.maps.Polyline | null>(null);
+
+  const makeCirclePath = (lat: number, lng: number, radiusMeters: number, steps = 128): google.maps.LatLngLiteral[] => {
+    // 近似：小さな円なら十分（本アプリはローカルエリア想定）
+    const r = Math.max(200, radiusMeters || 4000);
+    const latRad = (lat * Math.PI) / 180;
+    const dLat = r / 111_320; // meters -> deg
+    const dLng = r / (111_320 * Math.cos(latRad));
+
+    const pts: google.maps.LatLngLiteral[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * Math.PI * 2;
+      pts.push({ lat: lat + Math.sin(t) * dLat, lng: lng + Math.cos(t) * dLng });
+    }
+    return pts;
+  };
+
+  const boundsFromPath = (path: google.maps.LatLngLiteral[]): google.maps.LatLngBounds | null => {
+    if (!path.length) return null;
+    const b = new google.maps.LatLngBounds();
+    for (const p of path) b.extend(p);
+    return b;
+  };
 
   // map ready tick（mapRef は state じゃないので、effect 再実行用）
   const [readyTick, setReadyTick] = useState(0);
@@ -199,34 +221,52 @@ export default function GoogleMapCanvas({
     if (!map) return;
 
     if (area.kind === "none") {
-      if (areaCircleRef.current) {
-        areaCircleRef.current.setMap(null);
-        areaCircleRef.current = null;
+      if (areaOutlineRef.current) {
+        areaOutlineRef.current.setMap(null);
+        areaOutlineRef.current = null;
       }
       return;
     }
 
     if (!isFiniteLatLng(area.lat, area.lng)) return;
 
-    if (areaCircleRef.current) {
-      areaCircleRef.current.setMap(null);
-      areaCircleRef.current = null;
+    if (areaOutlineRef.current) {
+      areaOutlineRef.current.setMap(null);
+      areaOutlineRef.current = null;
     }
 
-    const circle = new google.maps.Circle({
+    // ★仕様：カテゴリ選択時は「赤点線で囲む」表示（GoogleMapの赤点線に寄せる）
+    // 形状はまず「円」で近似し、点線アイコンで描画する。
+    const path = makeCirclePath(area.lat, area.lng, area.radiusMeters || 4500);
+
+    const dotSymbol: google.maps.Symbol = {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 2.2,
+      fillOpacity: 1,
+      fillColor: "#ef4444", // tailwind red-500
+      strokeOpacity: 1,
+      strokeColor: "#ef4444",
+      strokeWeight: 1,
+    };
+
+    const outline = new google.maps.Polyline({
       map,
-      center: { lat: area.lat, lng: area.lng },
-      radius: Math.max(200, area.radiusMeters || 4000),
-      strokeOpacity: 0.9,
-      strokeWeight: 2,
-      fillOpacity: 0.12,
+      path,
+      strokeOpacity: 0,
       clickable: false,
-      zIndex: 50,
+      zIndex: 200,
+      icons: [
+        {
+          icon: dotSymbol,
+          offset: "0",
+          repeat: "12px",
+        },
+      ],
     });
 
-    areaCircleRef.current = circle;
+    areaOutlineRef.current = outline;
 
-    const bounds = circle.getBounds();
+    const bounds = boundsFromPath(path);
     if (bounds) {
       map.fitBounds(bounds, 24);
     } else {

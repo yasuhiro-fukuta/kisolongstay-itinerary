@@ -52,6 +52,8 @@ export default function ItineraryPanel({
   saveButtonText,
   saveDisabled,
   userLabel,
+  expanded,
+  onToggleExpand,
 }: {
   items: ItineraryItem[];
 
@@ -70,39 +72,55 @@ export default function ItineraryPanel({
   saveButtonText: string;
   saveDisabled?: boolean;
   userLabel?: string | null;
+
+  // スマホ向け：表示高さ（1/3 ↔ 2/3）を切り替える
+  expanded?: boolean;
+  onToggleExpand?: () => void;
 }) {
   const groups = groupByDay(items);
 
   return (
     <div className="text-neutral-100 h-full flex flex-col">
       {/* Header */}
-      <div className="p-3 border-b border-neutral-800 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-semibold truncate">木曽南部ロングステイ Itinerary（v3）</div>
-          {userLabel ? (
-            <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
-          ) : (
-            <div className="text-xs text-neutral-400 truncate">未ログイン（保存時にログインできます）</div>
-          )}
+      <div className="px-3 pb-3 pt-8 border-b border-neutral-800 relative">
+        {onToggleExpand ? (
+          <button
+            onClick={onToggleExpand}
+            className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full px-3 py-1 border border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900/40 text-neutral-100 text-sm leading-none"
+            title={expanded ? "縮める（1/3表示）" : "広げる（2/3表示）"}
+          >
+            {expanded ? "▽" : "△"}
+          </button>
+        ) : null}
 
-          <div className="mt-2 flex items-center gap-2">
-            <div className="text-xs text-neutral-300 shrink-0">出発日</div>
-            <input
-              type="date"
-              value={baseDate ?? ""}
-              onChange={(e) => onChangeBaseDate(e.target.value)}
-              className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
-            />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-semibold truncate">木曽南部ロングステイ Itinerary（v3）</div>
+            {userLabel ? (
+              <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
+            ) : (
+              <div className="text-xs text-neutral-400 truncate">未ログイン（保存時にログインできます）</div>
+            )}
+
+            <div className="mt-2 flex items-center gap-2">
+              <div className="text-xs text-neutral-300 shrink-0">出発日</div>
+              <input
+                type="date"
+                value={baseDate ?? ""}
+                onChange={(e) => onChangeBaseDate(e.target.value)}
+                className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
+              />
+            </div>
           </div>
-        </div>
 
-        <button
-          onClick={onSave}
-          disabled={!!saveDisabled}
-          className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-900 text-sm disabled:opacity-50"
-        >
-          {saveButtonText}
-        </button>
+          <button
+            onClick={onSave}
+            disabled={!!saveDisabled}
+            className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-900 text-sm disabled:opacity-50"
+          >
+            {saveButtonText}
+          </button>
+        </div>
       </div>
 
       {/* Body */}

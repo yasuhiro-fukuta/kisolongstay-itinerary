@@ -61,23 +61,30 @@ async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng
   return null;
 }
 
-// v3: カテゴリ→面ハイライト対象URL
+// v3+: カテゴリ→エリア表示対象URL（Google Map の「市区町村検索」っぽい挙動に寄せる）
+// ※短縮URLは /api/resolve-map がリダイレクト追従して lat/lng を得る
 const CATEGORY_AREA_URL: Record<string, string> = {
-  "妻籠": "https://maps.app.goo.gl/fmeEraZyHR6RZtLu6",
-  "蘭": "https://maps.app.goo.gl/fmeEraZyHR6RZtLu6",
-  "田立": "https://maps.app.goo.gl/qLh4irvfEX8erjSJA",
-  "南木曽": "https://maps.app.goo.gl/sRsb17U2SomSLN989",
-  "与川": "https://maps.app.goo.gl/sRsb17U2SomSLN989",
-  "柿其": "https://maps.app.goo.gl/sRsb17U2SomSLN989",
-  "阿寺": "https://maps.app.goo.gl/LstBYkJ46PobxDps8",
-  "野尻": "https://maps.app.goo.gl/LstBYkJ46PobxDps8",
-  "須原": "https://maps.app.goo.gl/nnaGx36Nwgqtewvz9",
+  "妻籠": "https://maps.app.goo.gl/3MLcRzBadQWnqLjCA",
+  "蘭": "https://maps.app.goo.gl/3MLcRzBadQWnqLjCA",
+  "南木曽": "https://maps.app.goo.gl/kdaGT1A8ZofXuNqJ7",
+  "田立": "https://maps.app.goo.gl/e7TB2uYUSKTr4Ap17",
+  "柿其": "https://maps.app.goo.gl/kdaGT1A8ZofXuNqJ7",
+  "阿寺": "https://maps.app.goo.gl/A5U7GPnXnHHdfN8j9",
+  "野尻": "https://maps.app.goo.gl/A5U7GPnXnHHdfN8j9",
+  "与川": "https://maps.app.goo.gl/kdaGT1A8ZofXuNqJ7",
+  "須原": "https://maps.app.goo.gl/VfpJTpDZnU9iVYzx5",
 };
 
 export default function MapItineraryBuilder() {
-  // v3: メニュー下/旅程上
+  // v3+: メニュー上/旅程下（スマホでの操作性強化）
   const [menuOpen, setMenuOpen] = useState(false);
   const [itineraryOpen, setItineraryOpen] = useState(false);
+  const [itineraryExpanded, setItineraryExpanded] = useState(false); // 1/3 ↔ 2/3
+
+  // 旅程を閉じたら、次回は必ず 1/3 表示からスタート
+  useEffect(() => {
+    if (!itineraryOpen) setItineraryExpanded(false);
+  }, [itineraryOpen]);
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(selectedItemId);
@@ -444,11 +451,12 @@ export default function MapItineraryBuilder() {
     const loc = await resolveMapUrlToLatLng(url);
     if (!loc) return;
 
+    // ★仕様：カテゴリ選択 → 赤点線で囲む（まずは円近似）
     setArea({
       kind: "circle",
       lat: loc.lat,
       lng: loc.lng,
-      radiusMeters: 4500, // 「面」なので固定半径。必要ならカテゴリ別に調整可能
+      radiusMeters: 4500, // 必要ならカテゴリ別に調整
       nonce: makeNonce(),
     });
   };
@@ -475,16 +483,16 @@ export default function MapItineraryBuilder() {
       {/* 検索（残す：必要なら後で移設しても良い） */}
       <MapSearchBar onSearch={onSearch} />
 
-      {/* v3: 旅程（上から出る） */}
+      {/* v3+: 旅程（下から出る） */}
       <div
         className={[
-          "absolute inset-x-0 top-0 z-[65]",
-          "h-[33vh]",
+          "absolute inset-x-0 bottom-0 z-[65]",
+          itineraryExpanded ? "h-[66vh]" : "h-[33vh]",
           "transition-transform duration-300 ease-out",
-          itineraryOpen ? "translate-y-0 pointer-events-auto" : "-translate-y-full pointer-events-none",
+          itineraryOpen ? "translate-y-0 pointer-events-auto" : "translate-y-full pointer-events-none",
         ].join(" ")}
       >
-        <div className="h-full rounded-b-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
+        <div className="h-full rounded-t-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
           <ItineraryPanel
             items={items}
             baseDate={baseDate}
@@ -499,11 +507,13 @@ export default function MapItineraryBuilder() {
             saveButtonText={saveButtonText}
             saveDisabled={saving}
             userLabel={userLabel}
+            expanded={itineraryExpanded}
+            onToggleExpand={() => setItineraryExpanded((v) => !v)}
           />
         </div>
       </div>
 
-      {/* v3: メニュー（下から出る） */}
+      {/* v3+: メニュー（上から出る） */}
       {leftMenuData ? (
         <LeftDrawer
           open={menuOpen}
@@ -521,22 +531,22 @@ export default function MapItineraryBuilder() {
         />
       ) : null}
 
-      {/* v3: 右下トグルボタン（メニュー） */}
-      <button
-        onClick={() => setMenuOpen((v) => !v)}
-        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
-        title="メニュー"
-      >
-        {menuOpen ? "×" : "≡"}
-      </button>
-
-      {/* v3: 右下トグルボタン（旅程）※上に配置 */}
+      {/* v3: 右下トグルボタン（旅程） */}
       <button
         onClick={() => setItineraryOpen((v) => !v)}
-        className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
+        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
         title="旅程"
       >
         📝
+      </button>
+
+      {/* v3: 右下トグルボタン（メニュー）※上に配置 */}
+      <button
+        onClick={() => setMenuOpen((v) => !v)}
+        className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
+        title="メニュー"
+      >
+        {menuOpen ? "×" : "≡"}
       </button>
 
       {saveToast ? (
