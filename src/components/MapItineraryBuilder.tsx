@@ -4,7 +4,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
-import GoogleMapCanvas, { type AreaFocus, type MapFocus } from "@/components/GoogleMapCanvas";
+import GoogleMapCanvas, {
+  type AreaFocus,
+  type MapFocus,
+  type PickedPlace,
+} from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
 import LeftDrawer from "@/components/LeftDrawer";
 import ItineraryPanel from "@/components/ItineraryPanel";
@@ -100,7 +104,10 @@ export default function MapItineraryBuilder() {
     return maxDay;
   }, [items]);
 
-  const dates = useMemo(() => Array.from({ length: dayCount }, (_, i) => addDays(baseDate, i)), [baseDate, dayCount]);
+  const dates = useMemo(
+    () => Array.from({ length: dayCount }, (_, i) => addDays(baseDate, i)),
+    [baseDate, dayCount]
+  );
 
   const [focus, setFocus] = useState<MapFocus>({ kind: "none" });
   const [area, setArea] = useState<AreaFocus>({ kind: "none" });
@@ -193,7 +200,7 @@ export default function MapItineraryBuilder() {
               name: String(place.name ?? it.name ?? ""),
               mapUrl: String(place.mapUrl ?? it.mapUrl ?? ""),
               placeId: String(place.placeId ?? it.placeId ?? ""),
-              hpUrl: "",  // mapクリックでHP/OTAは自動付与しない
+              hpUrl: "", // mapクリックでHP/OTAは自動付与しない
               otaUrl: "",
               lat: typeof place.lat === "number" ? place.lat : it.lat,
               lng: typeof place.lng === "number" ? place.lng : it.lng,
@@ -243,16 +250,34 @@ export default function MapItineraryBuilder() {
     }
   };
 
-  // 検索バー（任意：残す）
-  const onSearch = (query: string) => {
-    const q = query.trim();
-    if (!q) return;
-
+  // 検索バー（GoogleMap風：予測候補から選択 → ピン＋旅程に反映）
+  const onPickFromSearch = (p: PickedPlace) => {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
 
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === targetId
+          ? {
+              ...it,
+              name: String(p.name ?? it.name ?? ""),
+              mapUrl: String(p.mapUrl ?? it.mapUrl ?? ""),
+              placeId: String(p.placeId ?? it.placeId ?? ""),
+              // 検索から入れた場合は、HP/OTAは自動付与しない（必要なら後でメニューから）
+              hpUrl: "",
+              otaUrl: "",
+              lat: typeof p.lat === "number" ? p.lat : it.lat,
+              lng: typeof p.lng === "number" ? p.lng : it.lng,
+            }
+          : it
+      )
+    );
+
     setSelectedItemId(targetId);
-    setFocus({ kind: "query", query: q, nonce: makeNonce() });
+
+    if (typeof p.lat === "number" && typeof p.lng === "number") {
+      setFocus({ kind: "latlng", lat: p.lat, lng: p.lng, nonce: makeNonce() });
+    }
   };
 
   // v3: Day +（割り込み）
@@ -480,8 +505,8 @@ export default function MapItineraryBuilder() {
         items={items}
       />
 
-      {/* 検索（残す：必要なら後で移設しても良い） */}
-      <MapSearchBar onSearch={onSearch} />
+      {/* 検索（GoogleMap風：候補→選択で反映） */}
+      <MapSearchBar onPick={onPickFromSearch} />
 
       {/* v3+: 旅程（下から出る） */}
       <div
