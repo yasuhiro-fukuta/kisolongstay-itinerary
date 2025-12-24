@@ -4,11 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
-import GoogleMapCanvas, {
-  type AreaFocus,
-  type MapFocus,
-  type PickedPlace,
-} from "@/components/GoogleMapCanvas";
+import GoogleMapCanvas, { type AreaFocus, type MapFocus, type PickedPlace } from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
 import LeftDrawer from "@/components/LeftDrawer";
 import ItineraryPanel from "@/components/ItineraryPanel";
@@ -104,10 +100,7 @@ export default function MapItineraryBuilder() {
     return maxDay;
   }, [items]);
 
-  const dates = useMemo(
-    () => Array.from({ length: dayCount }, (_, i) => addDays(baseDate, i)),
-    [baseDate, dayCount]
-  );
+  const dates = useMemo(() => Array.from({ length: dayCount }, (_, i) => addDays(baseDate, i)), [baseDate, dayCount]);
 
   const [focus, setFocus] = useState<MapFocus>({ kind: "none" });
   const [area, setArea] = useState<AreaFocus>({ kind: "none" });
@@ -486,6 +479,101 @@ export default function MapItineraryBuilder() {
     });
   };
 
+  // v4: Googleカレンダーに反映（ログイン時のみ表示）
+  // - タイトル：みなみ木曽ロングステイ
+  // - 日付：出発日〜「値が入っているDayの最後」まで（終日）
+  // - 場所：旅程の出発点（最初に値が入っている行）
+  // - 説明：旅程リストを箇条書き
+  const hasAnyValue = (it: ItineraryItem) => {
+    const name = String(it.name ?? "").trim();
+    const mapUrl = String(it.mapUrl ?? "").trim();
+    const hpUrl = String(it.hpUrl ?? "").trim();
+    const otaUrl = String(it.otaUrl ?? "").trim();
+    return !!(name || mapUrl || hpUrl || otaUrl);
+  };
+
+  const lastFilledDay = () => {
+    let maxDay = 1;
+    for (const it of items) {
+      if (!hasAnyValue(it)) continue;
+      const d = Number(it.day) || 1;
+      if (d > maxDay) maxDay = d;
+    }
+    return maxDay;
+  };
+
+  const startPointName = () => {
+    const first = items.find((it) => hasAnyValue(it));
+    if (!first) return "";
+    const name = String(first.name ?? "").trim();
+    return name;
+  };
+
+  const buildBulletDetails = (startIso: string) => {
+    const lines: string[] = [];
+    lines.push("旅程（箇条書き）");
+
+    let currentDay = 0;
+    for (const it of items) {
+      if (!hasAnyValue(it)) continue;
+      const d = Number(it.day) || 1;
+
+      if (d !== currentDay) {
+        currentDay = d;
+        const date = addDays(startIso, d - 1);
+        lines.push(`Day${d} (${date})`);
+      }
+
+      const name = String(it.name ?? "").trim() || "（未設定）";
+      const mapUrl = String(it.mapUrl ?? "").trim();
+      const hpUrl = String(it.hpUrl ?? "").trim();
+      const otaUrl = String(it.otaUrl ?? "").trim();
+
+      const parts: string[] = [name];
+      if (mapUrl) parts.push(mapUrl);
+      if (hpUrl) parts.push(`HP: ${hpUrl}`);
+      if (otaUrl) parts.push(`OTA: ${otaUrl}`);
+
+      lines.push(`- ${parts.join("  ")}`);
+    }
+
+    if (lines.length === 1) lines.push("- （まだ旅程が入力されていません）");
+    return lines.join("\n");
+  };
+
+  const onAddToCalendar = () => {
+    if (!user) return;
+
+    const startIso = baseDate || yyyyMmDd(new Date());
+    const maxDay = lastFilledDay();
+
+    // Google Calendar の all-day は end を「翌日（排他的）」で渡す
+    const start = startIso.replaceAll("-", "");
+    const endExclusiveIso = addDays(startIso, maxDay); // 最終日の翌日
+    const end = endExclusiveIso.replaceAll("-", "");
+
+    const location = startPointName();
+    const details = buildBulletDetails(startIso);
+
+    const params = new URLSearchParams();
+    params.set("action", "TEMPLATE");
+    params.set("text", "みなみ木曽ロングステイ");
+    params.set("dates", `${start}/${end}`);
+    params.set("details", details);
+    if (location) params.set("location", location);
+    params.set("sf", "true");
+    params.set("output", "xml");
+    params.set("ctz", "Asia/Tokyo");
+
+    const url = `https://calendar.google.com/calendar/render?${params.toString()}`;
+
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (!w) {
+      // popupがブロックされた場合
+      window.location.href = url;
+    }
+  };
+
   const saveButtonText = user
     ? saving
       ? "保存中..."
@@ -529,6 +617,7 @@ export default function MapItineraryBuilder() {
             onInsertRowAfter={insertRowAfter}
             onRemoveRow={removeRow}
             onSave={onSaveClick}
+            onAddToCalendar={user ? onAddToCalendar : undefined}
             saveButtonText={saveButtonText}
             saveDisabled={saving}
             userLabel={userLabel}
@@ -556,22 +645,22 @@ export default function MapItineraryBuilder() {
         />
       ) : null}
 
-      {/* v3: 右下トグルボタン（旅程） */}
-      <button
-        onClick={() => setItineraryOpen((v) => !v)}
-        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
-        title="旅程"
-      >
-        📝
-      </button>
-
-      {/* v3: 右下トグルボタン（メニュー）※上に配置 */}
+      {/* v3: 右下トグルボタン（メニュー） */}
       <button
         onClick={() => setMenuOpen((v) => !v)}
         className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
         title="メニュー"
       >
         {menuOpen ? "×" : "≡"}
+      </button>
+
+      {/* v3: 右下トグルボタン（旅程）※上に配置 */}
+      <button
+        onClick={() => setItineraryOpen((v) => !v)}
+        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
+        title="旅程"
+      >
+        📝
       </button>
 
       {saveToast ? (

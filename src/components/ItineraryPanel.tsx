@@ -49,6 +49,7 @@ export default function ItineraryPanel({
   onRemoveRow,
 
   onSave,
+  onAddToCalendar,
   saveButtonText,
   saveDisabled,
   userLabel,
@@ -69,6 +70,7 @@ export default function ItineraryPanel({
   onRemoveRow: (itemId: string) => void;
 
   onSave: () => void;
+  onAddToCalendar?: () => void;
   saveButtonText: string;
   saveDisabled?: boolean;
   userLabel?: string | null;
@@ -95,7 +97,7 @@ export default function ItineraryPanel({
 
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-semibold truncate">木曽南部ロングステイ Itinerary（v3）</div>
+            <div className="font-semibold truncate">みなみ木曽ロングステイ Itinerary（v3）</div>
             {userLabel ? (
               <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
             ) : (
@@ -113,13 +115,25 @@ export default function ItineraryPanel({
             </div>
           </div>
 
-          <button
-            onClick={onSave}
-            disabled={!!saveDisabled}
-            className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-900 text-sm disabled:opacity-50"
-          >
-            {saveButtonText}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onSave}
+              disabled={!!saveDisabled}
+              className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-900 text-sm disabled:opacity-50"
+            >
+              {saveButtonText}
+            </button>
+
+            {userLabel && onAddToCalendar ? (
+              <button
+                onClick={onAddToCalendar}
+                className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-900 text-sm whitespace-nowrap"
+                title="Googleカレンダーに旅程を反映"
+              >
+                カレンダーに反映
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
