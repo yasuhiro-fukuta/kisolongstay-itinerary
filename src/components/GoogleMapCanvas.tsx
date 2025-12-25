@@ -10,6 +10,7 @@ export type PickedPlace = {
   placeId?: string;
   name?: string;
   mapUrl?: string;
+  website?: string;
   lat?: number;
   lng?: number;
 };
@@ -21,7 +22,8 @@ export type MapFocus =
 
 export type AreaFocus =
   | { kind: "none" }
-  | { kind: "circle"; lat: number; lng: number; radiusMeters: number; nonce: string };
+  | { kind: "circle"; lat: number; lng: number; radiusMeters: number; nonce: string }
+  | { kind: "polygon"; paths: google.maps.LatLngLiteral[][]; nonce: string };
 
 function decodePolyline(encoded: string): google.maps.LatLngLiteral[] {
   const points: google.maps.LatLngLiteral[] = [];
@@ -98,8 +100,8 @@ export default function GoogleMapCanvas({
   const abortRef = useRef<Map<number, AbortController>>(new Map());
   const lastKeyRef = useRef<Map<number, string>>(new Map());
 
-  // カテゴリ面ハイライト
-  const areaOutlineRef = useRef<google.maps.Polyline | null>(null);
+  // カテゴリ面ハイライト（複数リング対応）
+  const areaOutlinesRef = useRef<google.maps.Polyline[]>([]);
 
   const makeCirclePath = (lat: number, lng: number, radiusMeters: number, steps = 128): google.maps.LatLngLiteral[] => {
     // 近似：小さな円なら十分（本アプリはローカルエリア想定）
@@ -180,7 +182,9 @@ export default function GoogleMapCanvas({
           const placeId = e?.placeId as string | undefined;
           if (!placeId) return;
 
-          places.getDetails({ placeId, fields: ["place_id", "name", "url", "geometry"] }, (p, status) => {
+          places.getDetails(
+            { placeId, fields: ["place_id", "name", "url", "website", "geometry"] },
+            (p, status) => {
             if (!p || status !== "OK") return;
 
             const loc = p.geometry?.location;
@@ -191,6 +195,7 @@ export default function GoogleMapCanvas({
               placeId: p.place_id ?? placeId,
               name: p.name ?? "",
               mapUrl: p.url ?? "",
+              website: (p as any).website ?? "",
               lat: typeof lat === "number" ? lat : undefined,
               lng: typeof lng === "number" ? lng : undefined,
             });
@@ -203,7 +208,8 @@ export default function GoogleMapCanvas({
                 title: p.name ?? "",
               });
             }
-          });
+          }
+          );
         });
       })
       .catch((err) => {
@@ -220,25 +226,13 @@ export default function GoogleMapCanvas({
     const map = mapRef.current;
     if (!map) return;
 
-    if (area.kind === "none") {
-      if (areaOutlineRef.current) {
-        areaOutlineRef.current.setMap(null);
-        areaOutlineRef.current = null;
-      }
-      return;
-    }
+    // 既存のアウトラインをクリア
+    for (const pl of areaOutlinesRef.current) pl.setMap(null);
+    areaOutlinesRef.current = [];
 
-    if (!isFiniteLatLng(area.lat, area.lng)) return;
-
-    if (areaOutlineRef.current) {
-      areaOutlineRef.current.setMap(null);
-      areaOutlineRef.current = null;
-    }
+    if (area.kind === "none") return;
 
     // ★仕様：カテゴリ選択時は「赤点線で囲む」表示（GoogleMapの赤点線に寄せる）
-    // 形状はまず「円」で近似し、点線アイコンで描画する。
-    const path = makeCirclePath(area.lat, area.lng, area.radiusMeters || 4500);
-
     const dotSymbol: google.maps.Symbol = {
       path: google.maps.SymbolPath.CIRCLE,
       scale: 2.2,
@@ -249,26 +243,51 @@ export default function GoogleMapCanvas({
       strokeWeight: 1,
     };
 
-    const outline = new google.maps.Polyline({
-      map,
-      path,
-      strokeOpacity: 0,
-      clickable: false,
-      zIndex: 200,
-      icons: [
-        {
-          icon: dotSymbol,
-          offset: "0",
-          repeat: "12px",
-        },
-      ],
-    });
+    const addOutline = (path: google.maps.LatLngLiteral[]) => {
+      const outline = new google.maps.Polyline({
+        map,
+        path,
+        strokeOpacity: 0,
+        clickable: false,
+        zIndex: 200,
+        icons: [
+          {
+            icon: dotSymbol,
+            offset: "0",
+            repeat: "12px",
+          },
+        ],
+      });
+      areaOutlinesRef.current.push(outline);
+    };
 
-    areaOutlineRef.current = outline;
+    const bounds = new google.maps.LatLngBounds();
+    const extend = (path: google.maps.LatLngLiteral[]) => {
+      for (const p of path) bounds.extend(p);
+    };
 
-    const bounds = boundsFromPath(path);
-    if (bounds) {
-      map.fitBounds(bounds, 24);
+    if (area.kind === "polygon") {
+      const rings = Array.isArray(area.paths) ? area.paths : [];
+      for (const ring of rings) {
+        if (!Array.isArray(ring) || ring.length < 3) continue;
+        addOutline(ring);
+        extend(ring);
+      }
+
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { top: 80, right: 40, bottom: 220, left: 40 });
+      }
+      return;
+    }
+
+    // polygon が取れない場合は円でフォールバック
+    if (!isFiniteLatLng(area.lat, area.lng)) return;
+    const path = makeCirclePath(area.lat, area.lng, area.radiusMeters || 4500);
+    addOutline(path);
+    extend(path);
+
+    if (!bounds.isEmpty()) {
+      map.fitBounds(bounds, { top: 80, right: 40, bottom: 220, left: 40 });
     } else {
       map.panTo({ lat: area.lat, lng: area.lng });
       map.setZoom(12);

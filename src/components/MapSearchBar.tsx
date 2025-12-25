@@ -22,9 +22,7 @@ export default function MapSearchBar({
 
   const autoRef = useRef<google.maps.places.AutocompleteService | null>(null);
   const placesRef = useRef<google.maps.places.PlacesService | null>(null);
-  const tokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(
-    null
-  );
+  const tokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
 
   const debounceRef = useRef<number | null>(null);
   const reqIdRef = useRef(0);
@@ -152,7 +150,7 @@ export default function MapSearchBar({
     places.getDetails(
       {
         placeId,
-        fields: ["place_id", "name", "geometry", "url"],
+        fields: ["place_id", "name", "geometry", "url", "website"],
         sessionToken: tokenRef.current ?? undefined,
       },
       (p, status) => {
@@ -176,6 +174,7 @@ export default function MapSearchBar({
           placeId: finalPlaceId,
           name: p.name ?? pred.description,
           mapUrl,
+          website: (p as any).website ?? "",
           lat: typeof lat === "number" ? lat : undefined,
           lng: typeof lng === "number" ? lng : undefined,
         });

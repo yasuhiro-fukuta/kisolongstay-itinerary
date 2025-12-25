@@ -63,23 +63,18 @@ async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng
 
 // v3+: カテゴリ→エリア表示対象URL（Google Map の「市区町村検索」っぽい挙動に寄せる）
 // ※短縮URLは /api/resolve-map がリダイレクト追従して lat/lng を得る
-const CATEGORY_AREA_URL: Record<string, string> = {
-  "妻籠": "https://maps.app.goo.gl/3MLcRzBadQWnqLjCA",
-  "蘭": "https://maps.app.goo.gl/3MLcRzBadQWnqLjCA",
-  "南木曽": "https://maps.app.goo.gl/kdaGT1A8ZofXuNqJ7",
-  "田立": "https://maps.app.goo.gl/e7TB2uYUSKTr4Ap17",
-  "柿其": "https://maps.app.goo.gl/kdaGT1A8ZofXuNqJ7",
-  "阿寺": "https://maps.app.goo.gl/A5U7GPnXnHHdfN8j9",
-  "野尻": "https://maps.app.goo.gl/A5U7GPnXnHHdfN8j9",
-  "与川": "https://maps.app.goo.gl/kdaGT1A8ZofXuNqJ7",
-  "須原": "https://maps.app.goo.gl/VfpJTpDZnU9iVYzx5",
-};
-
+// カテゴリごとの境界ポリゴン取得用クエリ（Nominatim / OSM）。
+// 「行政境界っぽい」ポリゴンが返りやすいよう、町村名まで含める。
 export default function MapItineraryBuilder() {
   // v3+: メニュー上/旅程下（スマホでの操作性強化）
   const [menuOpen, setMenuOpen] = useState(false);
   const [itineraryOpen, setItineraryOpen] = useState(false);
   const [itineraryExpanded, setItineraryExpanded] = useState(false); // 1/3 ↔ 2/3
+
+  // 旅程名（保存リスト名 / Googleカレンダー反映時のタイトル）
+  const [itineraryTitle, setItineraryTitle] = useState<string>(
+    "みなみ木曽ロングステイ Itinerary（v3）"
+  );
 
   // 旅程を閉じたら、次回は必ず 1/3 表示からスタート
   useEffect(() => {
@@ -158,7 +153,7 @@ export default function MapItineraryBuilder() {
     setSaving(true);
     setSaveToast(null);
     try {
-      await saveItinerary(u.uid, dates, items);
+      await saveItinerary({ uid: u.uid, dates, items, title: itineraryTitle });
       await refreshList(u);
       setSaveToast("保存しました");
       setTimeout(() => setSaveToast(null), 1500);
@@ -180,10 +175,44 @@ export default function MapItineraryBuilder() {
 
   const fallbackTargetId = () => items[0]?.id ?? null;
 
+  // 値が入ったら次の行へ（スマホで全体が見えにくい問題の緩和）
+  const nextIdAfter = (list: ItineraryItem[], currentId: string): string => {
+    const idx = list.findIndex((x) => x.id === currentId);
+    if (idx >= 0 && idx < list.length - 1) return list[idx + 1]!.id;
+    return currentId;
+  };
+
+  // HP から SNS リンクを抽出（ベストエフォート）
+  const socialReqByItemRef = useRef<Record<string, number>>({});
+  const enrichSocialLinks = async (itemId: string, website: string) => {
+    const url = String(website ?? "").trim();
+    if (!url) return;
+
+    const next = (socialReqByItemRef.current[itemId] ?? 0) + 1;
+    socialReqByItemRef.current[itemId] = next;
+    const seq = next;
+
+    try {
+      const res = await fetch(`/api/extract-social?url=${encodeURIComponent(url)}`);
+      const data = await res.json().catch(() => ({} as any));
+      if (socialReqByItemRef.current[itemId] !== seq) return;
+      if (data?.ok && Array.isArray(data.socialLinks)) {
+        setItems((prev) =>
+          prev.map((it) => (it.id === itemId ? { ...it, socialLinks: data.socialLinks } : it))
+        );
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   // 地図クリックで拾ったものを反映
   const onPickPlace = (itemId: string | null, place: any) => {
     const targetId = itemId ?? selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
+
+    const nextId = nextIdAfter(items, targetId);
+    const website = String(place?.website ?? "").trim();
 
     setItems((prev) =>
       prev.map((it) =>
@@ -193,8 +222,9 @@ export default function MapItineraryBuilder() {
               name: String(place.name ?? it.name ?? ""),
               mapUrl: String(place.mapUrl ?? it.mapUrl ?? ""),
               placeId: String(place.placeId ?? it.placeId ?? ""),
-              hpUrl: "", // mapクリックでHP/OTAは自動付与しない
+              hpUrl: website,
               otaUrl: "",
+              socialLinks: [],
               lat: typeof place.lat === "number" ? place.lat : it.lat,
               lng: typeof place.lng === "number" ? place.lng : it.lng,
             }
@@ -202,14 +232,19 @@ export default function MapItineraryBuilder() {
       )
     );
 
-    setSelectedItemId(targetId);
+    setSelectedItemId(nextId);
     setMenuOpen(false); // マップタップ時に閉じる要件の延長（ここで確実に閉じる）
+
+    // SNSリンクはベストエフォートで後追い抽出
+    if (website) void enrichSocialLinks(targetId, website);
   };
 
   // v3: 行を選んで、メニューから入れる
   const onSelectFromMenu = async (p: MenuRow) => {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
+
+    const nextId = nextIdAfter(items, targetId);
 
     // UI即反映（Map/HP/OTA 空でも有効）
     setItems((prev) =>
@@ -221,6 +256,7 @@ export default function MapItineraryBuilder() {
               mapUrl: p.mapUrl ?? "",
               hpUrl: p.hpUrl ?? "",
               otaUrl: p.otaUrl ?? "",
+              socialLinks: [],
               placeId: "",
               lat: undefined,
               lng: undefined,
@@ -228,7 +264,7 @@ export default function MapItineraryBuilder() {
           : it
       )
     );
-    setSelectedItemId(targetId);
+    setSelectedItemId(nextId);
 
     // mapUrl があれば lat/lng を確定
     const myReq = ++resolvingRef.current;
@@ -243,10 +279,19 @@ export default function MapItineraryBuilder() {
     }
   };
 
+  // 金額メモ（各行）
+  const onChangeCostMemo = (itemId: string, value: string) => {
+    setItems((prev) => prev.map((it) => (it.id === itemId ? { ...it, costMemo: value } : it)));
+  };
+
+
   // 検索バー（GoogleMap風：予測候補から選択 → ピン＋旅程に反映）
   const onPickFromSearch = (p: PickedPlace) => {
     const targetId = selectedItemId ?? fallbackTargetId();
     if (!targetId) return;
+
+    const nextId = nextIdAfter(items, targetId);
+    const website = String(p.website ?? "").trim();
 
     setItems((prev) =>
       prev.map((it) =>
@@ -256,9 +301,10 @@ export default function MapItineraryBuilder() {
               name: String(p.name ?? it.name ?? ""),
               mapUrl: String(p.mapUrl ?? it.mapUrl ?? ""),
               placeId: String(p.placeId ?? it.placeId ?? ""),
-              // 検索から入れた場合は、HP/OTAは自動付与しない（必要なら後でメニューから）
-              hpUrl: "",
+              // 検索から入れた場合も、公式サイトが取れれば入れる
+              hpUrl: website,
               otaUrl: "",
+              socialLinks: [],
               lat: typeof p.lat === "number" ? p.lat : it.lat,
               lng: typeof p.lng === "number" ? p.lng : it.lng,
             }
@@ -266,12 +312,16 @@ export default function MapItineraryBuilder() {
       )
     );
 
-    setSelectedItemId(targetId);
+    setSelectedItemId(nextId);
+
+    // SNSリンクはベストエフォートで後追い抽出
+    if (website) void enrichSocialLinks(targetId, website);
 
     if (typeof p.lat === "number" && typeof p.lng === "number") {
       setFocus({ kind: "latlng", lat: p.lat, lng: p.lng, nonce: makeNonce() });
     }
   };
+
 
   // v3: Day +（割り込み）
   const insertDayAfter = (day: number) => {
@@ -382,7 +432,8 @@ export default function MapItineraryBuilder() {
       return;
     }
     try {
-      const loaded = await loadItinerary(user.uid, id);
+      const loaded = await loadItinerary({ uid: user.uid, id });
+      if (loaded.title) setItineraryTitle(String(loaded.title));
       if (loaded.dates?.[0]) setBaseDate(String(loaded.dates[0]));
       setItems(loaded.items);
       setSaveToast("旅程をロードしました");
@@ -458,29 +509,62 @@ export default function MapItineraryBuilder() {
     setTimeout(() => setSaveToast(null), 1500);
   };
 
-  // v3: カテゴリ押下 → 面をアクティブにする（旅程は触らない）
+  // カテゴリ押下 → 可能なら行政境界のポリゴンで囲う（円近似はフォールバック）
+  const boundaryReqRef = useRef(0);
+  const boundaryCacheRef = useRef<
+    Record<string, { center: { lat: number; lng: number }; paths: { lat: number; lng: number }[][] }>
+  >({});
+
   const onCategoryPicked = async (category: string) => {
-    const url = CATEGORY_AREA_URL[String(category ?? "").trim()];
-    if (!url) {
+    const key = String(category ?? "").trim();
+
+    // 全域は囲わない
+    if (!key || key === "全域") {
       setArea({ kind: "none" });
       return;
     }
 
-    const loc = await resolveMapUrlToLatLng(url);
-    if (!loc) return;
+    // キャッシュがあれば即反映
+    const cached = boundaryCacheRef.current[key];
+    if (cached?.paths?.length) {
+      setFocus({ kind: "latlng", lat: cached.center.lat, lng: cached.center.lng, nonce: makeNonce() });
+      setArea({ kind: "polygon", paths: cached.paths, nonce: makeNonce() });
+      return;
+    }
 
-    // ★仕様：カテゴリ選択 → 赤点線で囲む（まずは円近似）
-    setArea({
-      kind: "circle",
-      lat: loc.lat,
-      lng: loc.lng,
-      radiusMeters: 4500, // 必要ならカテゴリ別に調整
-      nonce: makeNonce(),
-    });
+        // まずは /api/boundary で境界（赤点線用のポリゴン）を取得
+    const reqId = ++boundaryReqRef.current;
+
+    try {
+      const res = await fetch(`/api/boundary?q=${encodeURIComponent(key)}`);
+      const data = (await res.json().catch(() => null)) as any;
+      if (reqId !== boundaryReqRef.current) return;
+
+      const center = data?.center;
+      const paths = data?.paths;
+      if (
+        data?.ok &&
+        center &&
+        typeof center.lat === "number" &&
+        typeof center.lng === "number" &&
+        Array.isArray(paths) &&
+        paths.length > 0
+      ) {
+        boundaryCacheRef.current[key] = { center, paths };
+        setFocus({ kind: "latlng", lat: center.lat, lng: center.lng, nonce: makeNonce() });
+        setArea({ kind: "polygon", paths, nonce: makeNonce() });
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 取得できなければ囲みは消す（間違った円を出すより安全）
+    if (reqId !== boundaryReqRef.current) return;
+    setArea({ kind: "none" });
   };
-
   // v4: Googleカレンダーに反映（ログイン時のみ表示）
-  // - タイトル：みなみ木曽ロングステイ
+  // - タイトル：旅程名（入力フォームの値）
   // - 日付：出発日〜「値が入っているDayの最後」まで（終日）
   // - 場所：旅程の出発点（最初に値が入っている行）
   // - 説明：旅程リストを箇条書き
@@ -489,7 +573,10 @@ export default function MapItineraryBuilder() {
     const mapUrl = String(it.mapUrl ?? "").trim();
     const hpUrl = String(it.hpUrl ?? "").trim();
     const otaUrl = String(it.otaUrl ?? "").trim();
-    return !!(name || mapUrl || hpUrl || otaUrl);
+    const hasSocial = Array.isArray(it.socialLinks)
+      ? it.socialLinks.some((s) => String(s?.url ?? "").trim().length > 0)
+      : false;
+    return !!(name || mapUrl || hpUrl || otaUrl || hasSocial);
   };
 
   const lastFilledDay = () => {
@@ -511,14 +598,19 @@ export default function MapItineraryBuilder() {
 
   const buildBulletDetails = (startIso: string) => {
     const lines: string[] = [];
-    lines.push("旅程（箇条書き）");
 
+    // ★要望: 説明の1行目にアプリリンク
+    lines.push("https://kisolongstay-itinerary.vercel.app/");
+    lines.push("");
+
+    // Dayごとにまとめる（Day間は1行空ける）
     let currentDay = 0;
     for (const it of items) {
       if (!hasAnyValue(it)) continue;
       const d = Number(it.day) || 1;
 
       if (d !== currentDay) {
+        if (currentDay !== 0) lines.push("");
         currentDay = d;
         const date = addDays(startIso, d - 1);
         lines.push(`Day${d} (${date})`);
@@ -528,16 +620,24 @@ export default function MapItineraryBuilder() {
       const mapUrl = String(it.mapUrl ?? "").trim();
       const hpUrl = String(it.hpUrl ?? "").trim();
       const otaUrl = String(it.otaUrl ?? "").trim();
+      const socials = Array.isArray(it.socialLinks) ? it.socialLinks : [];
 
-      const parts: string[] = [name];
-      if (mapUrl) parts.push(mapUrl);
-      if (hpUrl) parts.push(`HP: ${hpUrl}`);
-      if (otaUrl) parts.push(`OTA: ${otaUrl}`);
-
-      lines.push(`- ${parts.join("  ")}`);
+      lines.push(`- ${name}`);
+      if (mapUrl) lines.push(`  Map: ${mapUrl}`);
+      if (hpUrl) lines.push(`  Web: ${hpUrl}`);
+      if (otaUrl) lines.push(`  OTA: ${otaUrl}`);
+      for (const s of socials) {
+        const url = String(s?.url ?? "").trim();
+        if (!url) continue;
+        const label = String(s?.platform ?? "SNS").trim() || "SNS";
+        lines.push(`  ${label}: ${url}`);
+      }
     }
 
-    if (lines.length === 1) lines.push("- （まだ旅程が入力されていません）");
+    if (lines.length <= 2) {
+      lines.push("- （まだ旅程が入力されていません）");
+    }
+
     return lines.join("\n");
   };
 
@@ -557,7 +657,7 @@ export default function MapItineraryBuilder() {
 
     const params = new URLSearchParams();
     params.set("action", "TEMPLATE");
-    params.set("text", "みなみ木曽ロングステイ");
+    params.set("text", itineraryTitle.trim() || "みなみ木曽ロングステイ");
     params.set("dates", `${start}/${end}`);
     params.set("details", details);
     if (location) params.set("location", location);
@@ -593,7 +693,7 @@ export default function MapItineraryBuilder() {
         items={items}
       />
 
-      {/* 検索（GoogleMap風：候補→選択で反映） */}
+      {/* 検索（残す：必要なら後で移設しても良い） */}
       <MapSearchBar onPick={onPickFromSearch} />
 
       {/* v3+: 旅程（下から出る） */}
@@ -607,11 +707,14 @@ export default function MapItineraryBuilder() {
       >
         <div className="h-full rounded-t-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
           <ItineraryPanel
+            itineraryTitle={itineraryTitle}
+            onChangeItineraryTitle={setItineraryTitle}
             items={items}
             baseDate={baseDate}
             onChangeBaseDate={setBaseDate}
             selectedItemId={selectedItemId}
             onSelectItem={(id) => setSelectedItemId(id)}
+            onChangeCostMemo={onChangeCostMemo}
             onInsertDayAfter={insertDayAfter}
             onRemoveDay={removeDay}
             onInsertRowAfter={insertRowAfter}

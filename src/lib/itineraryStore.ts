@@ -13,7 +13,7 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function buildTitle(date: Date) {
+function buildFallbackTitle(date: Date) {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(
     date.getHours()
   )}:${pad(date.getMinutes())}`;
@@ -40,9 +40,19 @@ function normalizeDay(v: unknown): number | null {
   return n;
 }
 
-export async function saveItinerary(uid: string, dates: string[], items: ItineraryItem[]) {
+export async function saveItinerary({
+  uid,
+  dates,
+  items,
+  title,
+}: {
+  uid: string;
+  dates: string[];
+  items: ItineraryItem[];
+  title?: string;
+}) {
   const now = new Date();
-  const title = buildTitle(now);
+  const finalTitle = String(title ?? "").trim() || buildFallbackTitle(now);
   const savedAtMs = now.getTime();
 
   const safeItems = items.map((x) => {
@@ -56,6 +66,14 @@ export async function saveItinerary(uid: string, dates: string[], items: Itinera
       hpUrl: String(x.hpUrl ?? ""),
       otaUrl: String(x.otaUrl ?? ""),
 
+      costMemo: String(x.costMemo ?? ""),
+
+      socialLinks: Array.isArray(x.socialLinks)
+        ? x.socialLinks
+            .map((s) => ({ platform: String((s as any)?.platform ?? ""), url: String((s as any)?.url ?? "") }))
+            .filter((s) => s.platform && s.url)
+        : [],
+
       placeId: String(x.placeId ?? ""),
     };
 
@@ -63,9 +81,9 @@ export async function saveItinerary(uid: string, dates: string[], items: Itinera
   });
 
   const ref = await addDoc(collection(db, "itineraries"), {
-    schemaVersion: 4, // v3で増減Day/リンク等があるので更新
+    schemaVersion: 6, // v5: タイトル入力 + socialLinks
     uid,
-    title,
+    title: finalTitle,
     savedAtMs,
     dates: Array.isArray(dates) ? dates.map((d) => String(d ?? "")) : [],
     items: safeItems,
@@ -91,13 +109,23 @@ export async function listItineraries(uid: string): Promise<SavedItineraryMeta[]
   return list;
 }
 
-export async function loadItinerary(uid: string, id: string): Promise<{ dates: string[]; items: ItineraryItem[] }> {
+export async function loadItinerary(
+  uidOrArgs: string | { uid: string; id: string },
+  idMaybe?: string
+): Promise<{ title: string; dates: string[]; items: ItineraryItem[] }> {
+  const uid = typeof uidOrArgs === "string" ? uidOrArgs : uidOrArgs.uid;
+  const id = typeof uidOrArgs === "string" ? String(idMaybe ?? "") : uidOrArgs.id;
+
+  if (!uid || !id) throw new Error("ロード情報が不正です");
+
   const ref = doc(db, "itineraries", id);
   const snap = await getDoc(ref);
 
   if (!snap.exists()) throw new Error("旅程が存在しません");
   const data: any = snap.data();
   if (data.uid !== uid) throw new Error("権限がありません");
+
+  const title = String(data?.title ?? "").trim() || "保存済み旅程";
 
   const dates = Array.isArray(data?.dates) ? data.dates.map((v: any) => String(v ?? "")) : [];
 
@@ -115,6 +143,12 @@ export async function loadItinerary(uid: string, id: string): Promise<{ dates: s
           mapUrl: String(raw?.mapUrl ?? ""),
           hpUrl: String(raw?.hpUrl ?? ""),
           otaUrl: String(raw?.otaUrl ?? ""),
+          costMemo: String(raw?.costMemo ?? ""),
+          socialLinks: Array.isArray(raw?.socialLinks)
+            ? raw.socialLinks
+                .map((s: any) => ({ platform: String(s?.platform ?? ""), url: String(s?.url ?? "") }))
+                .filter((s: any) => s.platform && s.url)
+            : [],
           placeId: String(raw?.placeId ?? ""),
           lat: numOrUndef(raw?.lat),
           lng: numOrUndef(raw?.lng),
@@ -122,8 +156,8 @@ export async function loadItinerary(uid: string, id: string): Promise<{ dates: s
       })
       .filter(Boolean) as ItineraryItem[];
 
-    return { dates, items: parsed.length ? parsed : makeInitialItems() };
+    return { title, dates, items: parsed.length ? parsed : makeInitialItems() };
   }
 
-  return { dates, items: makeInitialItems() };
+  return { title, dates, items: makeInitialItems() };
 }

@@ -22,6 +22,7 @@ function emojiForIconKey(iconKey: string): string {
   if (k.includes("museum")) return "🏛️";
   if (k.includes("goods") || k.includes("shop")) return "🛍️";
   if (k.includes("taxi")) return "🚕";
+  if (k.includes("bus") || k.includes("shuttle")) return "🚌";
   if (k.includes("tour")) return "🧭";
   if (k.includes("baggage")) return "🧳";
   return "📍";

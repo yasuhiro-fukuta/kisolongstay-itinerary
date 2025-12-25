@@ -36,12 +36,35 @@ function groupByDay(items: ItineraryItem[]): { day: number; rows: ItineraryItem[
   return days.map((d) => ({ day: d, rows: map.get(d) ?? [] }));
 }
 
+
+
+function parseCostMemoToYen(v: unknown): number {
+  const s = String(v ?? "").trim();
+  if (!s) return 0;
+  // 数字以外は除去（「,」「円」などが混ざってもOK）
+  const digits = s.replace(/[^0-9]/g, "");
+  if (!digits) return 0;
+  const n = parseInt(digits, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatYen(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  try {
+    return n.toLocaleString("ja-JP");
+  } catch {
+    return String(n);
+  }
+}
 export default function ItineraryPanel({
+  itineraryTitle,
+  onChangeItineraryTitle,
   items,
   baseDate,
   onChangeBaseDate,
   selectedItemId,
   onSelectItem,
+  onChangeCostMemo,
 
   onInsertDayAfter,
   onRemoveDay,
@@ -56,6 +79,8 @@ export default function ItineraryPanel({
   expanded,
   onToggleExpand,
 }: {
+  itineraryTitle: string;
+  onChangeItineraryTitle: (v: string) => void;
   items: ItineraryItem[];
 
   baseDate: string;
@@ -63,6 +88,7 @@ export default function ItineraryPanel({
 
   selectedItemId: string | null;
   onSelectItem: (id: string) => void;
+  onChangeCostMemo: (itemId: string, value: string) => void;
 
   onInsertDayAfter: (day: number) => void;
   onRemoveDay: (day: number) => void;
@@ -80,6 +106,7 @@ export default function ItineraryPanel({
   onToggleExpand?: () => void;
 }) {
   const groups = groupByDay(items);
+  const totalCostYen = items.reduce((sum, it) => sum + parseCostMemoToYen(it.costMemo), 0);
 
   return (
     <div className="text-neutral-100 h-full flex flex-col">
@@ -97,7 +124,13 @@ export default function ItineraryPanel({
 
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-semibold truncate">みなみ木曽ロングステイ Itinerary（v3）</div>
+            <input
+              value={itineraryTitle}
+              onChange={(e) => onChangeItineraryTitle(e.target.value)}
+              className="w-full max-w-[60vw] font-semibold bg-transparent border-b border-neutral-700/70 focus:border-neutral-100 outline-none truncate"
+              placeholder="旅程名（保存/カレンダーのタイトル）"
+              aria-label="旅程名"
+            />
             {userLabel ? (
               <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
             ) : (
@@ -111,6 +144,15 @@ export default function ItineraryPanel({
                 value={baseDate ?? ""}
                 onChange={(e) => onChangeBaseDate(e.target.value)}
                 className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
+              />
+            
+              <div className="text-xs text-neutral-300 shrink-0 ml-2">合計金額</div>
+              <input
+                value={formatYen(totalCostYen)}
+                readOnly
+                className="w-28 rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 py-1 text-sm text-neutral-100 text-right"
+                aria-label="合計金額"
+                title="各行の金額メモの合計"
               />
             </div>
           </div>
@@ -229,7 +271,34 @@ export default function ItineraryPanel({
                                 OTA
                               </a>
                             ) : null}
+
+                            {Array.isArray(v.socialLinks)
+                              ? v.socialLinks.map((s) => (
+                                  <a
+                                    key={s.platform + s.url}
+                                    className="underline"
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {s.platform}
+                                  </a>
+                                ))
+                              : null}
                           </div>
+                        </div>
+
+                        {/* 金額メモ */}
+                        <div className="shrink-0">
+                          <input
+                            value={v.costMemo ?? ""}
+                            onChange={(e) => onChangeCostMemo(v.id, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-24 rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 py-1 text-sm text-neutral-100 text-right placeholder:text-neutral-500"
+                            placeholder="金額をメモ"
+                            inputMode="numeric"
+                            aria-label="金額メモ"
+                          />
                         </div>
 
                         {/* 行 + / - */}

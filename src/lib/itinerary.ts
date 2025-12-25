@@ -17,6 +17,16 @@ export type ItineraryItem = {
   hpUrl: string;
   otaUrl: string;
 
+  // ★金額メモ（円想定・自由入力）
+  costMemo: string;
+
+  /**
+   * ソーシャルプロフィール（Instagram / TikTok など）。
+   * - Mapクリック時に Place の website から抽出する（できる範囲で）
+   * - メニュー（CSV）では基本空
+   */
+  socialLinks?: { platform: string; url: string }[];
+
   // 参照用（Mapクリック時など）
   placeId: string;
 
@@ -40,6 +50,8 @@ export function makeEmptySpot(day: number): ItineraryItem {
     mapUrl: "",
     hpUrl: "",
     otaUrl: "",
+    costMemo: "",
+    socialLinks: [],
     placeId: "",
     lat: undefined,
     lng: undefined,
