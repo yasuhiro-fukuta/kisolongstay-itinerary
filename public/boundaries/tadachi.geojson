@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "tadachi",
+        "_color": "#000000",
+        "_opacity": 0.5,
+        "_weight": 3,
+        "_fillColor": "#ffff00",
+        "_fillOpacity": 0.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              137.539215,
+              35.58399
+            ],
+            [
+              137.584534,
+              35.585386
+            ],
+            [
+              137.5914,
+              35.616651
+            ],
+            [
+              137.546082,
+              35.654321
+            ],
+            [
+              137.510719,
+              35.609581
+            ],
+            [
+              137.539215,
+              35.58399
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

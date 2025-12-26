@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "nagiso",
+        "_color": "#000000",
+        "_opacity": 0.5,
+        "_weight": 3,
+        "_fillColor": "#ffff00",
+        "_fillOpacity": 0.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              137.564278,
+              35.586689
+            ],
+            [
+              137.621613,
+              35.583059
+            ],
+            [
+              137.651138,
+              35.595065
+            ],
+            [
+              137.614059,
+              35.614046
+            ],
+            [
+              137.580414,
+              35.60986
+            ],
+            [
+              137.564278,
+              35.586689
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
