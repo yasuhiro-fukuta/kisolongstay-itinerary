@@ -13,6 +13,10 @@ export type PickedPlace = {
   website?: string;
   lat?: number;
   lng?: number;
+
+  // ★UI用（地図由来のアイコン/カテゴリ）
+  iconUrl?: string;
+  types?: string[];
 };
 
 export type MapFocus =
@@ -183,7 +187,7 @@ export default function GoogleMapCanvas({
           if (!placeId) return;
 
           places.getDetails(
-            { placeId, fields: ["place_id", "name", "url", "website", "geometry"] },
+            { placeId, fields: ["place_id", "name", "url", "website", "geometry", "icon", "types"] },
             (p, status) => {
             if (!p || status !== "OK") return;
 
@@ -196,6 +200,8 @@ export default function GoogleMapCanvas({
               name: p.name ?? "",
               mapUrl: p.url ?? "",
               website: (p as any).website ?? "",
+              iconUrl: String((p as any).icon ?? ""),
+              types: Array.isArray((p as any).types) ? ((p as any).types as any[]).map(String) : undefined,
               lat: typeof lat === "number" ? lat : undefined,
               lng: typeof lng === "number" ? lng : undefined,
             });
@@ -351,6 +357,8 @@ export default function GoogleMapCanvas({
         placeId,
         name: r0.name ?? q,
         mapUrl,
+        iconUrl: String((r0 as any)?.icon ?? ""),
+        types: Array.isArray((r0 as any)?.types) ? ((r0 as any).types as any[]).map(String) : undefined,
         lat,
         lng,
       });

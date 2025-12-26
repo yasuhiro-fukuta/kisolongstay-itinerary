@@ -19,8 +19,49 @@ import {
   type SavedItineraryMeta,
 } from "@/lib/itineraryStore";
 
-import { loadLeftMenuData, type LeftMenuData, type MenuRow } from "@/lib/menuData";
+import {
+  loadLeftMenuData,
+  publicImageUrlFromImgCell,
+  type LeftMenuData,
+  type MenuRow,
+} from "@/lib/menuData";
 import { loadSampleTourData, type SampleTourData } from "@/lib/sampleTourData";
+
+function pickIconKeyFromTypes(types: unknown): string {
+  const arr = Array.isArray(types) ? (types as any[]).map((x) => String(x ?? "").trim()).filter(Boolean) : [];
+  if (!arr.length) return "";
+
+  // Google Places の types には汎用語が混ざるので除外してから先頭を採用する
+  const ignore = new Set([
+    "point_of_interest",
+    "establishment",
+    "premise",
+    "political",
+    "geocode",
+    "place_of_worship",
+    "locality",
+    "sublocality",
+    "sublocality_level_1",
+    "administrative_area_level_1",
+    "administrative_area_level_2",
+    "administrative_area_level_3",
+    "administrative_area_level_4",
+    "administrative_area_level_5",
+    "country",
+    "postal_code",
+    "postal_code_prefix",
+    "postal_code_suffix",
+    "postal_town",
+    "route",
+    "street_address",
+  ]);
+
+  for (const t of arr) {
+    const k = t.toLowerCase();
+    if (!ignore.has(k)) return k;
+  }
+  return arr[0]!.toLowerCase();
+}
 
 function yyyyMmDd(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -68,6 +109,7 @@ async function resolveMapUrlToLatLng(mapUrl: string): Promise<{ lat: number; lng
 export default function MapItineraryBuilder() {
   // v3+: メニュー上/旅程下（スマホでの操作性強化）
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuExpanded, setMenuExpanded] = useState(false); // 1/3 ↔ 2/3（上から出る）
   const [itineraryOpen, setItineraryOpen] = useState(false);
   const [itineraryExpanded, setItineraryExpanded] = useState(false); // 1/3 ↔ 2/3
 
@@ -80,6 +122,16 @@ export default function MapItineraryBuilder() {
   useEffect(() => {
     if (!itineraryOpen) setItineraryExpanded(false);
   }, [itineraryOpen]);
+
+  // メニューを閉じたら、次回は必ず 1/3 表示からスタート
+  useEffect(() => {
+    if (!menuOpen) setMenuExpanded(false);
+  }, [menuOpen]);
+
+  // メニューを閉じたら、次回は必ず 1/3 表示からスタート
+  useEffect(() => {
+    if (!menuOpen) setMenuExpanded(false);
+  }, [menuOpen]);
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(selectedItemId);
@@ -227,6 +279,11 @@ export default function MapItineraryBuilder() {
               socialLinks: [],
               lat: typeof place.lat === "number" ? place.lat : it.lat,
               lng: typeof place.lng === "number" ? place.lng : it.lng,
+
+              // ★UI：地図から入れた場合は「Googleのピンアイコン」を優先
+              thumbUrl: "", // 仕様：サムネイル無しでOK
+              iconKey: pickIconKeyFromTypes(place?.types) || "spot",
+              iconUrl: String(place?.iconUrl ?? place?.icon ?? ""),
             }
           : it
       )
@@ -256,6 +313,9 @@ export default function MapItineraryBuilder() {
               mapUrl: p.mapUrl ?? "",
               hpUrl: p.hpUrl ?? "",
               otaUrl: p.otaUrl ?? "",
+              thumbUrl: publicImageUrlFromImgCell(p.img ?? ""),
+              iconKey: String(p.icon ?? ""),
+              iconUrl: "",
               socialLinks: [],
               placeId: "",
               lat: undefined,
@@ -305,6 +365,10 @@ export default function MapItineraryBuilder() {
               hpUrl: website,
               otaUrl: "",
               socialLinks: [],
+              // ★UI：地図（検索）から入れた場合は「Googleのピンアイコン」を優先
+              thumbUrl: "", // 仕様：サムネイル無しでOK
+              iconKey: pickIconKeyFromTypes((p as any)?.types) || "spot",
+              iconUrl: String((p as any)?.iconUrl ?? ""),
               lat: typeof p.lat === "number" ? p.lat : it.lat,
               lng: typeof p.lng === "number" ? p.lng : it.lng,
             }
@@ -406,7 +470,23 @@ export default function MapItineraryBuilder() {
       if (dayItems.length <= 1) {
         const next = prev.map((it) =>
           it.id === itemId
-            ? { ...it, name: "", mapUrl: "", hpUrl: "", otaUrl: "", placeId: "", lat: undefined, lng: undefined }
+            ? {
+                ...it,
+                name: "",
+                mapUrl: "",
+                hpUrl: "",
+                otaUrl: "",
+                costMemo: "",
+                socialLinks: [],
+                placeId: "",
+                lat: undefined,
+                lng: undefined,
+
+                // UIメタもクリア
+                thumbUrl: "",
+                iconKey: "",
+                iconUrl: "",
+              }
             : it
         );
         return next;
@@ -481,6 +561,9 @@ export default function MapItineraryBuilder() {
       target.mapUrl = menu.mapUrl ?? "";
       target.hpUrl = menu.hpUrl ?? "";
       target.otaUrl = menu.otaUrl ?? "";
+      target.thumbUrl = publicImageUrlFromImgCell(menu.img ?? "");
+      target.iconKey = String(menu.icon ?? "");
+      target.iconUrl = "";
       target.placeId = "";
       target.lat = undefined;
       target.lng = undefined;
@@ -735,6 +818,8 @@ export default function MapItineraryBuilder() {
         <LeftDrawer
           open={menuOpen}
           onOpenChange={setMenuOpen}
+          expanded={menuExpanded}
+          onToggleExpand={() => setMenuExpanded((v) => !v)}
           categories={leftMenuData.categories}
           byCategory={leftMenuData.byCategory}
           onCategoryPicked={onCategoryPicked}
@@ -754,7 +839,7 @@ export default function MapItineraryBuilder() {
         className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
         title="メニュー"
       >
-        {menuOpen ? "×" : "≡"}
+        ≡
       </button>
 
       {/* v3: 右下トグルボタン（旅程）※上に配置 */}

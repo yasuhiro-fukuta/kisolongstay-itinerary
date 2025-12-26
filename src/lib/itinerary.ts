@@ -33,6 +33,17 @@ export type ItineraryItem = {
   // ルート描画用（Mapが無い場合は undefined のままでもOK）
   lat?: number;
   lng?: number;
+
+  /**
+   * UI表示用メタデータ（任意）
+   * - メニュー（CSV）から入れた場合：thumbUrl / iconKey が入る
+   * - 地図（Google Places）から入れた場合：iconUrl / iconKey が入る（thumbUrl は空でOK）
+   *
+   * 保存/ロードしても崩れないよう、素のURL文字列として保持する。
+   */
+  thumbUrl?: string;
+  iconKey?: string;
+  iconUrl?: string;
 };
 
 function makeId(): string {
@@ -55,6 +66,10 @@ export function makeEmptySpot(day: number): ItineraryItem {
     placeId: "",
     lat: undefined,
     lng: undefined,
+
+    thumbUrl: "",
+    iconKey: "",
+    iconUrl: "",
   };
 }
 

@@ -36,6 +36,29 @@ function groupByDay(items: ItineraryItem[]): { day: number; rows: ItineraryItem[
   return days.map((d) => ({ day: d, rows: map.get(d) ?? [] }));
 }
 
+function emojiForIconKey(iconKey: string): string {
+  const k = (iconKey || "").toLowerCase().trim();
+  if (!k) return "📍";
+  if (k.includes("cafe") || k.includes("coffee")) return "☕";
+  if (k.includes("trail") || k.includes("mount") || k.includes("hike")) return "⛰️";
+  if (k.includes("gorge") || k.includes("river")) return "🏞️";
+  if (k.includes("brew") || k.includes("beer")) return "🍺";
+  if (k.includes("onsen") || k.includes("spa")) return "♨️";
+  if (k.includes("hotel") || k.includes("inn") || k.includes("lodging")) return "🏨";
+  if (k.includes("train") || k.includes("station")) return "🚉";
+  if (k.includes("restaurant") || k.includes("lunch") || k.includes("dinner") || k.includes("food"))
+    return "🍽️";
+  if (k.includes("camp")) return "🏕️";
+  if (k.includes("cycle") || k.includes("bike")) return "🚴";
+  if (k.includes("museum")) return "🏛️";
+  if (k.includes("goods") || k.includes("shop") || k.includes("store")) return "🛍️";
+  if (k.includes("taxi")) return "🚕";
+  if (k.includes("bus") || k.includes("shuttle")) return "🚌";
+  if (k.includes("tour")) return "🧭";
+  if (k.includes("baggage")) return "🧳";
+  return "📍";
+}
+
 
 
 function parseCostMemoToYen(v: unknown): number {
@@ -228,6 +251,12 @@ export default function ItineraryPanel({
                   const checked = selectedItemId === v.id;
                   const nameLabel = v.name?.trim() ? v.name : "（未設定）";
 
+                  const thumbUrl = String(v.thumbUrl ?? "").trim();
+                  const iconKey = String(v.iconKey ?? "").trim();
+                  const iconUrl = String(v.iconUrl ?? "").trim();
+                  const iconLabel = iconKey || "spot";
+                  const emoji = emojiForIconKey(iconKey);
+
                   return (
                     <div
                       key={v.id}
@@ -250,46 +279,45 @@ export default function ItineraryPanel({
                           ].join(" ")}
                         />
 
+                        {/* サムネイル */}
+                        <div className="h-12 w-12 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 shrink-0 relative">
+                          {thumbUrl ? (
+                            <img
+                              src={thumbUrl}
+                              alt={nameLabel}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                              }}
+                            />
+                          ) : null}
+                        </div>
+
                         {/* ★スポット名：自由記述不可（表示のみ） */}
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">{nameLabel}</div>
+                          {/* アイコン名 */}
+                          <div className="text-[11px] text-neutral-400 truncate">{iconLabel}</div>
 
-                          {/* links */}
-                          <div className="mt-1 flex flex-wrap gap-3 text-xs text-neutral-300">
-                            {v.mapUrl ? (
-                              <a className="underline" href={v.mapUrl} target="_blank" rel="noreferrer">
-                                Map
-                              </a>
-                            ) : null}
-                            {v.hpUrl ? (
-                              <a className="underline" href={v.hpUrl} target="_blank" rel="noreferrer">
-                                HP
-                              </a>
-                            ) : null}
-                            {v.otaUrl ? (
-                              <a className="underline" href={v.otaUrl} target="_blank" rel="noreferrer">
-                                OTA
-                              </a>
-                            ) : null}
-
-                            {Array.isArray(v.socialLinks)
-                              ? v.socialLinks.map((s) => (
-                                  <a
-                                    key={s.platform + s.url}
-                                    className="underline"
-                                    href={s.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    {s.platform}
-                                  </a>
-                                ))
-                              : null}
+                          {/* タイトル（左にアイコン） */}
+                          <div className="text-sm font-medium truncate text-neutral-100 flex items-center gap-2">
+                            {iconUrl ? (
+                              <img
+                                src={iconUrl}
+                                alt=""
+                                className="h-4 w-4 shrink-0"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <span className="shrink-0">{emoji}</span>
+                            )}
+                            <span className="truncate">{nameLabel}</span>
                           </div>
                         </div>
 
-                        {/* 金額メモ */}
-                        <div className="shrink-0">
+                        {/* 右：金額メモ（上）＋リンク（下） */}
+                        <div className="shrink-0 flex flex-col items-end gap-1">
                           <input
                             value={v.costMemo ?? ""}
                             onChange={(e) => onChangeCostMemo(v.id, e.target.value)}
@@ -299,6 +327,58 @@ export default function ItineraryPanel({
                             inputMode="numeric"
                             aria-label="金額メモ"
                           />
+
+                          {/* links（右側下：金額メモの下に移動） */}
+                          <div className="flex flex-wrap justify-end gap-3 text-xs text-neutral-300">
+                            {v.mapUrl ? (
+                              <a
+                                href={v.mapUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                Map
+                              </a>
+                            ) : null}
+                            {v.hpUrl ? (
+                              <a
+                                href={v.hpUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                HP
+                              </a>
+                            ) : null}
+                            {v.otaUrl ? (
+                              <a
+                                href={v.otaUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                OTA
+                              </a>
+                            ) : null}
+
+                            {Array.isArray(v.socialLinks)
+                              ? v.socialLinks.map((s) => (
+                                  <a
+                                    key={s.platform + s.url}
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {s.platform}
+                                  </a>
+                                ))
+                              : null}
+                          </div>
                         </div>
 
                         {/* 行 + / - */}

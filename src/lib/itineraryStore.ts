@@ -68,6 +68,11 @@ export async function saveItinerary({
 
       costMemo: String(x.costMemo ?? ""),
 
+      // UIメタ（空でも保存してOK）
+      thumbUrl: String((x as any).thumbUrl ?? ""),
+      iconKey: String((x as any).iconKey ?? ""),
+      iconUrl: String((x as any).iconUrl ?? ""),
+
       socialLinks: Array.isArray(x.socialLinks)
         ? x.socialLinks
             .map((s) => ({ platform: String((s as any)?.platform ?? ""), url: String((s as any)?.url ?? "") }))
@@ -81,7 +86,7 @@ export async function saveItinerary({
   });
 
   const ref = await addDoc(collection(db, "itineraries"), {
-    schemaVersion: 6, // v5: タイトル入力 + socialLinks
+    schemaVersion: 7, // v7: UIメタ（thumbUrl/iconKey/iconUrl）
     uid,
     title: finalTitle,
     savedAtMs,
@@ -144,6 +149,9 @@ export async function loadItinerary(
           hpUrl: String(raw?.hpUrl ?? ""),
           otaUrl: String(raw?.otaUrl ?? ""),
           costMemo: String(raw?.costMemo ?? ""),
+          thumbUrl: String(raw?.thumbUrl ?? ""),
+          iconKey: String(raw?.iconKey ?? ""),
+          iconUrl: String(raw?.iconUrl ?? ""),
           socialLinks: Array.isArray(raw?.socialLinks)
             ? raw.socialLinks
                 .map((s: any) => ({ platform: String(s?.platform ?? ""), url: String(s?.url ?? "") }))

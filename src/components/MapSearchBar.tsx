@@ -150,7 +150,7 @@ export default function MapSearchBar({
     places.getDetails(
       {
         placeId,
-        fields: ["place_id", "name", "geometry", "url", "website"],
+        fields: ["place_id", "name", "geometry", "url", "website", "icon", "types"],
         sessionToken: tokenRef.current ?? undefined,
       },
       (p, status) => {
@@ -175,6 +175,8 @@ export default function MapSearchBar({
           name: p.name ?? pred.description,
           mapUrl,
           website: (p as any).website ?? "",
+          iconUrl: String((p as any).icon ?? ""),
+          types: Array.isArray((p as any).types) ? ((p as any).types as any[]).map(String) : undefined,
           lat: typeof lat === "number" ? lat : undefined,
           lng: typeof lng === "number" ? lng : undefined,
         });

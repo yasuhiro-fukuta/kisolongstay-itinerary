@@ -31,6 +31,8 @@ function emojiForIconKey(iconKey: string): string {
 export default function LeftDrawer({
   open,
   onOpenChange,
+  expanded,
+  onToggleExpand,
 
   categories,
   byCategory,
@@ -49,6 +51,10 @@ export default function LeftDrawer({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 
+  // 上1/3 ↔ 上2/3（プルダウン / ロールアップ）
+  expanded: boolean;
+  onToggleExpand: () => void;
+
   categories: string[];
   byCategory: Map<string, MenuRow[]>;
 
@@ -65,7 +71,6 @@ export default function LeftDrawer({
 }) {
   const [active, setActive] = useState<string>(categories[0] ?? "全域");
   const [loadOpen, setLoadOpen] = useState(false);
-  const [sampleOpen, setSampleOpen] = useState(true);
 
   // categoriesが後から来た時の初期化
   useEffect(() => {
@@ -79,7 +84,7 @@ export default function LeftDrawer({
     <div
       className={[
         "absolute inset-x-0 top-0 z-[70]",
-        "h-[33vh]",
+        expanded ? "h-[66vh]" : "h-[33vh]",
         "transition-transform duration-300 ease-out",
         open ? "translate-y-0 pointer-events-auto" : "-translate-y-full pointer-events-none",
       ].join(" ")}
@@ -95,33 +100,23 @@ export default function LeftDrawer({
         <div className="flex-1 overflow-auto p-2 space-y-4">
           {/* ① サンプルツアー */}
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-neutral-100">サンプルツアー</div>
-              <button
-                onClick={() => setSampleOpen((v) => !v)}
-                className="text-xs px-2 py-1 rounded-lg border border-neutral-800 text-neutral-100"
-              >
-                {sampleOpen ? "閉じる" : "開く"}
-              </button>
-            </div>
+            <div className="text-sm font-semibold text-neutral-100">サンプルツアー</div>
 
-            {sampleOpen && (
-              <div className="mt-2 space-y-2">
-                {sampleTours.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => onLoadSampleTour(t)}
-                    className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-left hover:bg-neutral-900/60 text-sm text-neutral-100"
-                    title={t}
-                  >
-                    {t}
-                  </button>
-                ))}
-                {sampleTours.length === 0 ? (
-                  <div className="text-xs text-neutral-400">sampletour.csv が空、または読み込み失敗しています。</div>
-                ) : null}
-              </div>
-            )}
+            <div className="mt-2 space-y-2">
+              {sampleTours.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => onLoadSampleTour(t)}
+                  className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-left hover:bg-neutral-900/60 text-sm text-neutral-100"
+                  title={t}
+                >
+                  {t}
+                </button>
+              ))}
+              {sampleTours.length === 0 ? (
+                <div className="text-xs text-neutral-400">sampletour.csv が空、または読み込み失敗しています。</div>
+              ) : null}
+            </div>
           </div>
 
           {/* ② カテゴリ（横並び） */}
@@ -166,10 +161,18 @@ export default function LeftDrawer({
                   const emoji = emojiForIconKey(p.icon);
 
                   return (
-                    <button
+                    <div
                       key={p.menuid}
                       onClick={() => onSelectPlace(p)}
-                      className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 p-2 flex gap-3 items-center text-left hover:bg-neutral-900/60"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onSelectPlace(p);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 p-2 flex gap-3 items-start text-left hover:bg-neutral-900/60 cursor-pointer"
                       title={p.title}
                     >
                       <div className="h-12 w-12 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 shrink-0 relative">
@@ -192,7 +195,46 @@ export default function LeftDrawer({
                           <span className="truncate">{p.title}</span>
                         </div>
                       </div>
-                    </button>
+
+                      {/* 右下：リンク（Map / HP / OTA） */}
+                      <div className="shrink-0 flex flex-col items-end self-stretch">
+                        <div className="mt-auto flex flex-wrap justify-end gap-3 text-xs text-neutral-300">
+                          {p.mapUrl ? (
+                            <a
+                              href={p.mapUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Map
+                            </a>
+                          ) : null}
+                          {p.hpUrl ? (
+                            <a
+                              href={p.hpUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              HP
+                            </a>
+                          ) : null}
+                          {p.otaUrl ? (
+                            <a
+                              href={p.otaUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              OTA
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -242,13 +284,14 @@ export default function LeftDrawer({
           </div>
         </div>
 
-        {/* 下段：閉じる */}
-        <div className="p-2 border-t border-neutral-800 flex justify-end">
+        {/* 下段：上1/3 ↔ 上2/3 のトグル（プルダウン / ロールアップ） */}
+        <div className="p-2 border-t border-neutral-800 flex justify-center">
           <button
-            onClick={() => onOpenChange(false)}
-            className="rounded-lg px-3 py-1 text-sm border border-neutral-800 text-neutral-100"
+            onClick={onToggleExpand}
+            className="rounded-full w-8 h-8 border border-neutral-800 bg-neutral-950/60 text-neutral-100 grid place-items-center"
+            title={expanded ? "縮める（上1/3表示）" : "広げる（上2/3表示）"}
           >
-            閉じる
+            {expanded ? "△" : "▽"}
           </button>
         </div>
       </div>
