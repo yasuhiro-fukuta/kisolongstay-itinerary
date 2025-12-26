@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { MenuRow } from "@/lib/menuData";
 import { publicImageUrlFromImgCell } from "@/lib/menuData";
 import type { SavedItineraryMeta } from "@/lib/itineraryStore";
+import { translateCategory, translateTourName, translateSpotTitle, useI18n } from "@/lib/i18n";
 
 function emojiForIconKey(iconKey: string): string {
   const k = (iconKey || "").toLowerCase().trim();
@@ -33,16 +34,12 @@ export default function LeftDrawer({
   onOpenChange,
   expanded,
   onToggleExpand,
-
   categories,
   byCategory,
-
   onCategoryPicked,
   onSelectPlace,
-
   sampleTours,
   onLoadSampleTour,
-
   savedItineraries,
   onLoadItinerary,
   userLabel,
@@ -51,7 +48,7 @@ export default function LeftDrawer({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 
-  // 上1/3 ↔ 上2/3（プルダウン / ロールアップ）
+  // top 1/3 ↔ top 2/3 (pull down / roll up)
   expanded: boolean;
   onToggleExpand: () => void;
 
@@ -69,15 +66,18 @@ export default function LeftDrawer({
   userLabel: string | null;
   onRequestLogin: () => void;
 }) {
+  const { lang, t } = useI18n();
+
   const [active, setActive] = useState<string>(categories[0] ?? "全域");
   const [loadOpen, setLoadOpen] = useState(false);
 
-  // categoriesが後から来た時の初期化
+  // if categories arrive later, ensure active is valid
   useEffect(() => {
     if (!categories.length) return;
     if (!categories.includes(active)) setActive(categories[0]);
   }, [categories, active]);
 
+  const activeLabel = translateCategory(active, lang);
   const places = useMemo(() => byCategory.get(active) ?? [], [byCategory, active]);
 
   return (
@@ -91,40 +91,44 @@ export default function LeftDrawer({
     >
       <div className="h-full rounded-b-2xl bg-neutral-950/95 backdrop-blur shadow-2xl border border-neutral-800 overflow-hidden text-neutral-100 flex flex-col">
         {/*
-          仕様（スマホ強化）
-          - メニューは上から出る
-          - 表示順：サンプルツアー → カテゴリ（横並び） → サービスメニュー → 旅程ロード
+          Mobile-first
+          - Menu slides from the top
+          - Order: Sample tours → Categories → Service menu → Load itinerary
         */}
 
-        {/* スクロール領域 */}
+        {/* scroll area */}
         <div className="flex-1 overflow-auto p-2 space-y-4">
-          {/* ① サンプルツアー */}
+          {/* 1) Sample tours */}
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-2">
-            <div className="text-sm font-semibold text-neutral-100">サンプルツアー</div>
+            <div className="text-sm font-semibold text-neutral-100">{t("menu.sampleTours")}</div>
 
             <div className="mt-2 space-y-2">
-              {sampleTours.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => onLoadSampleTour(t)}
-                  className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-left hover:bg-neutral-900/60 text-sm text-neutral-100"
-                  title={t}
-                >
-                  {t}
-                </button>
-              ))}
+              {sampleTours.map((tourKey) => {
+                const label = translateTourName(tourKey, lang);
+                return (
+                  <button
+                    key={tourKey}
+                    onClick={() => onLoadSampleTour(tourKey)}
+                    className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-left hover:bg-neutral-900/60 text-sm text-neutral-100"
+                    title={label}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
               {sampleTours.length === 0 ? (
-                <div className="text-xs text-neutral-400">sampletour.csv が空、または読み込み失敗しています。</div>
+                <div className="text-xs text-neutral-400">{t("menu.sampleToursEmpty")}</div>
               ) : null}
             </div>
           </div>
 
-          {/* ② カテゴリ（横並び） */}
+          {/* 2) Categories (horizontal) */}
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-2">
-            <div className="text-xs text-neutral-400 mb-2">カテゴリ</div>
+            <div className="text-xs text-neutral-400 mb-2">{t("menu.categories")}</div>
             <div className="flex gap-2 overflow-x-auto pb-1">
               {categories.map((c) => {
                 const on = c === active;
+                const label = translateCategory(c, lang);
                 return (
                   <button
                     key={c}
@@ -134,31 +138,34 @@ export default function LeftDrawer({
                     }}
                     className={[
                       "shrink-0 rounded-full px-3 py-1 text-sm border",
-                      on ? "bg-neutral-100 text-neutral-900 border-neutral-200" : "bg-neutral-950 border-neutral-800",
+                      on
+                        ? "bg-neutral-100 text-neutral-900 border-neutral-200"
+                        : "bg-neutral-950 border-neutral-800",
                     ].join(" ")}
                   >
-                    {c}
+                    {label}
                   </button>
                 );
               })}
             </div>
-            <div className="mt-2 text-xs text-neutral-400">選択中：{active}</div>
+            <div className="mt-2 text-xs text-neutral-400">{t("menu.selected", { active: activeLabel })}</div>
           </div>
 
-          {/* ③ サービスメニュー（スポット一覧） */}
+          {/* 3) Service menu (spots) */}
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-neutral-100">サービスメニュー</div>
-              <div className="text-xs text-neutral-400 shrink-0">{active}</div>
+              <div className="text-sm font-semibold text-neutral-100">{t("menu.serviceMenu")}</div>
+              <div className="text-xs text-neutral-400 shrink-0">{activeLabel}</div>
             </div>
 
             {places.length === 0 ? (
-              <div className="mt-2 text-sm text-neutral-400">まだこのカテゴリにスポットがありません</div>
+              <div className="mt-2 text-sm text-neutral-400">{t("menu.noSpots")}</div>
             ) : (
               <div className="mt-2 space-y-2">
                 {places.map((p) => {
                   const imgSrc = publicImageUrlFromImgCell(p.img);
                   const emoji = emojiForIconKey(p.icon);
+                  const titleLabel = translateSpotTitle(p.title, lang);
 
                   return (
                     <div
@@ -173,13 +180,13 @@ export default function LeftDrawer({
                         }
                       }}
                       className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 p-2 flex gap-3 items-start text-left hover:bg-neutral-900/60 cursor-pointer"
-                      title={p.title}
+                      title={titleLabel}
                     >
                       <div className="h-12 w-12 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 shrink-0 relative">
                         {imgSrc ? (
                           <img
                             src={imgSrc}
-                            alt={p.title}
+                            alt={titleLabel}
                             className="h-full w-full object-cover"
                             onError={(e) => {
                               (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -192,11 +199,11 @@ export default function LeftDrawer({
                         <div className="text-[11px] text-neutral-400 truncate">{p.icon ? p.icon : "spot"}</div>
                         <div className="text-sm font-medium truncate text-neutral-100 flex items-center gap-2">
                           <span className="shrink-0">{emoji}</span>
-                          <span className="truncate">{p.title}</span>
+                          <span className="truncate">{titleLabel}</span>
                         </div>
                       </div>
 
-                      {/* 右下：リンク（Map / HP / OTA） */}
+                      {/* bottom-right: links */}
                       <div className="shrink-0 flex flex-col items-end self-stretch">
                         <div className="mt-auto flex flex-wrap justify-end gap-3 text-xs text-neutral-300">
                           {p.mapUrl ? (
@@ -207,7 +214,7 @@ export default function LeftDrawer({
                               className="hover:underline"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              Map
+                              {t("common.links.map")}
                             </a>
                           ) : null}
                           {p.hpUrl ? (
@@ -218,7 +225,7 @@ export default function LeftDrawer({
                               className="hover:underline"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              HP
+                              {t("common.links.hp")}
                             </a>
                           ) : null}
                           {p.otaUrl ? (
@@ -229,7 +236,7 @@ export default function LeftDrawer({
                               className="hover:underline"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              OTA
+                              {t("common.links.ota")}
                             </a>
                           ) : null}
                         </div>
@@ -241,16 +248,16 @@ export default function LeftDrawer({
             )}
           </div>
 
-          {/* ④ 旅程ロード */}
+          {/* 4) Load itinerary */}
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-2">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-neutral-100">旅程ロード</div>
+              <div className="text-sm font-semibold text-neutral-100">{t("menu.itineraryLoad")}</div>
               {!userLabel ? (
                 <button
                   onClick={onRequestLogin}
                   className="text-xs px-3 py-1 rounded-lg border border-neutral-800 text-neutral-100"
                 >
-                  ログイン
+                  {t("menu.login")}
                 </button>
               ) : null}
             </div>
@@ -259,21 +266,22 @@ export default function LeftDrawer({
               onClick={() => setLoadOpen((v) => !v)}
               className="mt-2 w-full text-left rounded-xl px-3 py-2 border border-neutral-800 bg-neutral-950/60 hover:bg-neutral-900/60 text-neutral-100"
             >
-              旅程をロードする
+              {t("menu.loadButton")}
             </button>
 
             {loadOpen && (
               <div className="mt-2 space-y-2">
                 {!userLabel ? (
-                  <div className="text-xs text-neutral-400">旅程のロードはログイン後に利用できます。</div>
+                  <div className="text-xs text-neutral-400">{t("menu.loadRequiresLogin")}</div>
                 ) : savedItineraries.length === 0 ? (
-                  <div className="text-xs text-neutral-400">保存した旅程がまだありません。</div>
+                  <div className="text-xs text-neutral-400">{t("menu.noSaved")}</div>
                 ) : (
                   savedItineraries.map((it) => (
                     <button
                       key={it.id}
                       onClick={() => onLoadItinerary(it.id)}
                       className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-left hover:bg-neutral-900/60 text-sm text-neutral-100"
+                      title={it.title}
                     >
                       {it.title}
                     </button>
@@ -284,12 +292,12 @@ export default function LeftDrawer({
           </div>
         </div>
 
-        {/* 下段：上1/3 ↔ 上2/3 のトグル（プルダウン / ロールアップ） */}
+        {/* bottom: height toggle */}
         <div className="p-2 border-t border-neutral-800 flex justify-center">
           <button
             onClick={onToggleExpand}
             className="rounded-full w-8 h-8 border border-neutral-800 bg-neutral-950/60 text-neutral-100 grid place-items-center"
-            title={expanded ? "縮める（上1/3表示）" : "広げる（上2/3表示）"}
+            title={expanded ? t("menu.collapseTitle") : t("menu.expandTitle")}
           >
             {expanded ? "△" : "▽"}
           </button>

@@ -4,15 +4,13 @@
 import { useEffect, useRef, useState } from "react";
 import { loadGoogleMaps } from "@/lib/googleMapsLoader";
 import type { PickedPlace } from "@/components/GoogleMapCanvas";
+import { useI18n } from "@/lib/i18n";
 
 type Prediction = google.maps.places.AutocompletePrediction;
 
-export default function MapSearchBar({
-  onPick,
-}: {
-  // 予測候補を選んだ時に、ピン＋旅程反映する
-  onPick: (p: PickedPlace) => void;
-}) {
+export default function MapSearchBar({ onPick }: { onPick: (p: PickedPlace) => void }) {
+  const { t } = useI18n();
+
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const [value, setValue] = useState("");
@@ -27,7 +25,7 @@ export default function MapSearchBar({
   const debounceRef = useRef<number | null>(null);
   const reqIdRef = useRef(0);
 
-  // Google Maps（places）を確実に読み込み
+  // Ensure Google Maps (places) is loaded
   useEffect(() => {
     let cancelled = false;
 
@@ -36,10 +34,8 @@ export default function MapSearchBar({
         if (cancelled) return;
 
         autoRef.current = new google.maps.places.AutocompleteService();
-        // PlacesService は Map が無くても div で動く
-        placesRef.current = new google.maps.places.PlacesService(
-          document.createElement("div")
-        );
+        // PlacesService works without an actual Map instance (div is fine)
+        placesRef.current = new google.maps.places.PlacesService(document.createElement("div"));
         tokenRef.current = new google.maps.places.AutocompleteSessionToken();
       })
       .catch((e) => {
@@ -69,7 +65,6 @@ export default function MapSearchBar({
     svc.getPlacePredictions(
       {
         input: q,
-        // 日本国内に寄せる（GoogleMapの挙動に近い）
         componentRestrictions: { country: "jp" },
         sessionToken: tokenRef.current ?? undefined,
       },
@@ -84,11 +79,11 @@ export default function MapSearchBar({
         }
 
         setPredictions(res.slice(0, 5));
-      }
+      },
     );
   };
 
-  // 入力のたびに候補を更新（軽いデバウンス）
+  // Update predictions on input (light debounce)
   useEffect(() => {
     const q = value.trim();
 
@@ -104,7 +99,7 @@ export default function MapSearchBar({
       return;
     }
 
-    // 入力中は候補を出す
+    // show suggestions while typing
     setOpen(true);
 
     debounceRef.current = window.setTimeout(() => {
@@ -119,7 +114,7 @@ export default function MapSearchBar({
     };
   }, [value]);
 
-  // 外クリックで候補を閉じる
+  // Close on outside click
   useEffect(() => {
     if (!open) return;
 
@@ -165,11 +160,8 @@ export default function MapSearchBar({
         const finalPlaceId = p.place_id ?? placeId;
         const mapUrl =
           (p as any).url ||
-          (finalPlaceId
-            ? `https://www.google.com/maps/place/?q=place_id:${finalPlaceId}`
-            : "");
+          (finalPlaceId ? `https://www.google.com/maps/place/?q=place_id:${finalPlaceId}` : "");
 
-        // 旅程へ反映
         onPick({
           placeId: finalPlaceId,
           name: p.name ?? pred.description,
@@ -186,14 +178,14 @@ export default function MapSearchBar({
         setPredictions([]);
         setOpen(false);
 
-        // 次の検索は新しいセッション扱い
+        // New session token for the next search
         tokenRef.current = new google.maps.places.AutocompleteSessionToken();
-      }
+      },
     );
   };
 
   const onClickSearch = () => {
-    // GoogleMapっぽく：検索を押したら「候補を出す」
+    // Mimic Google Maps: show suggestions when pressing Search
     const q = value.trim();
     if (!q) return;
 
@@ -204,12 +196,9 @@ export default function MapSearchBar({
   const showList = open && (predictions.length > 0 || loading);
 
   return (
-    <div
-      ref={rootRef}
-      className="absolute left-1/2 top-4 z-[50] -translate-x-1/2 pointer-events-auto"
-    >
+    <div ref={rootRef} className="absolute left-1/2 top-4 z-[50] -translate-x-1/2 pointer-events-auto">
       <div className="relative w-[min(92vw,420px)]">
-        {/* 検索バー */}
+        {/* search bar */}
         <div className="flex items-center gap-2 rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 px-3 py-2">
           <span className="text-neutral-300 text-sm">🔍</span>
 
@@ -229,7 +218,7 @@ export default function MapSearchBar({
                 closeList();
               }
             }}
-            placeholder="場所名・駅名・住所で検索"
+            placeholder={t("search.placeholder")}
             className="flex-1 bg-transparent outline-none text-sm text-neutral-100 placeholder:text-neutral-500"
           />
 
@@ -241,7 +230,8 @@ export default function MapSearchBar({
                 setOpen(false);
               }}
               className="text-neutral-300 text-xs px-2 py-1 rounded-full border border-neutral-800"
-              title="クリア"
+              title={t("search.clear")}
+              aria-label={t("search.clear")}
             >
               ×
             </button>
@@ -251,23 +241,19 @@ export default function MapSearchBar({
             onClick={onClickSearch}
             className="px-3 py-1 rounded-full bg-white text-black text-xs font-semibold"
           >
-            検索
+            {t("search.search")}
           </button>
         </div>
 
-        {/* 予測候補（最大5件） */}
+        {/* predictions (max 5) */}
         {showList ? (
           <div className="mt-2 rounded-2xl bg-white text-neutral-900 shadow-xl border border-neutral-200 overflow-hidden">
             {loading ? (
-              <div className="px-4 py-3 text-sm text-neutral-600">
-                候補を取得中…
-              </div>
+              <div className="px-4 py-3 text-sm text-neutral-600">{t("search.loading")}</div>
             ) : null}
 
             {!loading && predictions.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-neutral-600">
-                候補が見つかりません
-              </div>
+              <div className="px-4 py-3 text-sm text-neutral-600">{t("search.noResults")}</div>
             ) : null}
 
             {predictions.map((p) => {
@@ -277,7 +263,7 @@ export default function MapSearchBar({
               return (
                 <button
                   key={p.place_id + "|" + p.description}
-                  // blurより先に発火させる（モバイルで安定）
+                  // fire before blur (more stable on mobile)
                   onPointerDown={(e) => {
                     e.preventDefault();
                     pickPrediction(p);
@@ -285,11 +271,7 @@ export default function MapSearchBar({
                   className="w-full text-left px-4 py-3 hover:bg-neutral-100 active:bg-neutral-100 border-t border-neutral-100"
                 >
                   <div className="text-sm font-medium truncate">{main}</div>
-                  {secondary ? (
-                    <div className="text-xs text-neutral-600 truncate">
-                      {secondary}
-                    </div>
-                  ) : null}
+                  {secondary ? <div className="text-xs text-neutral-600 truncate">{secondary}</div> : null}
                 </button>
               );
             })}

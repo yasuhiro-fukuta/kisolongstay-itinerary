@@ -7,12 +7,8 @@ import {
   useState,
   MutableRefObject,
 } from "react";
-import {
-  animate,
-  motion,
-  useDragControls,
-  useMotionValue,
-} from "framer-motion";
+import { animate, motion, useDragControls, useMotionValue } from "framer-motion";
+import { useI18n } from "@/lib/i18n";
 
 type Edge = "right" | "bottom";
 
@@ -20,10 +16,7 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function useAxisSize(
-  ref: MutableRefObject<HTMLElement | null>,
-  edge: Edge,
-): number {
+function useAxisSize(ref: MutableRefObject<HTMLElement | null>, edge: Edge): number {
   const [size, setSize] = useState(0);
 
   useLayoutEffect(() => {
@@ -62,6 +55,8 @@ export default function EdgeSheet({
   className?: string;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
+
   const sheetRef = useRef<HTMLElement | null>(null);
   const dragControls = useDragControls();
   const axisSize = useAxisSize(sheetRef, edge);
@@ -119,13 +114,11 @@ export default function EdgeSheet({
         finishByPosition();
       }}
     >
-      {/* ハンドル */}
+      {/* handle */}
       <div
         className={[
           "absolute z-10",
-          edge === "right"
-            ? "left-0 top-0 bottom-0 border-r"
-            : "left-0 right-0 top-0 border-b",
+          edge === "right" ? "left-0 top-0 bottom-0 border-r" : "left-0 right-0 top-0 border-b",
           "border-neutral-800 bg-neutral-900/70",
           "flex items-center justify-center",
           "cursor-grab active:cursor-grabbing select-none",
@@ -137,13 +130,11 @@ export default function EdgeSheet({
           if (draggingRef.current) return;
           onOpenChange(!open);
         }}
-        title={open ? "収納" : "表示"}
+        title={open ? t("sheet.hide") : t("sheet.show")}
       >
         {edge === "right" ? (
           <div className="h-full w-full flex flex-col items-center justify-center gap-2">
-            <div className="text-neutral-200 text-lg leading-none">
-              {open ? "›" : "‹"}
-            </div>
+            <div className="text-neutral-200 text-lg leading-none">{open ? "›" : "‹"}</div>
             <div
               className="text-[10px] tracking-widest text-neutral-200"
               style={{ writingMode: "vertical-rl" }}
@@ -153,17 +144,13 @@ export default function EdgeSheet({
           </div>
         ) : (
           <div className="w-full flex items-center justify-center gap-2">
-            <div className="text-neutral-200 text-base leading-none">
-              {open ? "˅" : "˄"}
-            </div>
-            <div className="text-xs font-semibold text-neutral-200">
-              {handleLabel}
-            </div>
+            <div className="text-neutral-200 text-base leading-none">{open ? "˅" : "˄"}</div>
+            <div className="text-xs font-semibold text-neutral-200">{handleLabel}</div>
           </div>
         )}
       </div>
 
-      {/* コンテンツ（ここがスクロール領域） */}
+      {/* content */}
       <div
         className="h-full w-full overflow-y-auto"
         style={edge === "right" ? { paddingLeft: handleSize } : { paddingTop: handleSize }}

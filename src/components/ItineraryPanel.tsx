@@ -3,6 +3,7 @@
 
 import type { ItineraryItem } from "@/lib/itinerary";
 import { dayColor, hexToRgba } from "@/lib/dayColors";
+import { translateSpotTitle, useI18n } from "@/lib/i18n";
 
 function yyyyMmDd(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -26,7 +27,7 @@ function groupByDay(items: ItineraryItem[]): { day: number; rows: ItineraryItem[
   const map = new Map<number, ItineraryItem[]>();
   for (const d of days) map.set(d, []);
 
-  // items順を保持
+  // keep item order
   for (const it of items) {
     const d = Number(it.day);
     if (!map.has(d)) map.set(d, []);
@@ -59,26 +60,25 @@ function emojiForIconKey(iconKey: string): string {
   return "📍";
 }
 
-
-
 function parseCostMemoToYen(v: unknown): number {
   const s = String(v ?? "").trim();
   if (!s) return 0;
-  // 数字以外は除去（「,」「円」などが混ざってもOK）
+  // strip non-digits (allows commas, 円, etc.)
   const digits = s.replace(/[^0-9]/g, "");
   if (!digits) return 0;
   const n = parseInt(digits, 10);
   return Number.isFinite(n) ? n : 0;
 }
 
-function formatYen(n: number): string {
+function formatNumber(n: number, locale: string): string {
   if (!Number.isFinite(n)) return "";
   try {
-    return n.toLocaleString("ja-JP");
+    return n.toLocaleString(locale);
   } catch {
     return String(n);
   }
 }
+
 export default function ItineraryPanel({
   itineraryTitle,
   onChangeItineraryTitle,
@@ -124,10 +124,13 @@ export default function ItineraryPanel({
   saveDisabled?: boolean;
   userLabel?: string | null;
 
-  // スマホ向け：表示高さ（1/3 ↔ 2/3）を切り替える
+  // mobile: height toggle (1/3 ↔ 2/3)
   expanded?: boolean;
   onToggleExpand?: () => void;
 }) {
+  const { lang, t } = useI18n();
+  const locale = lang === "ja" ? "ja-JP" : "en-US";
+
   const groups = groupByDay(items);
   const totalCostYen = items.reduce((sum, it) => sum + parseCostMemoToYen(it.costMemo), 0);
 
@@ -139,7 +142,7 @@ export default function ItineraryPanel({
           <button
             onClick={onToggleExpand}
             className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full px-3 py-1 border border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900/40 text-neutral-100 text-sm leading-none"
-            title={expanded ? "縮める（1/3表示）" : "広げる（2/3表示）"}
+            title={expanded ? t("itinerary.collapseTitle") : t("itinerary.expandTitle")}
           >
             {expanded ? "▽" : "△"}
           </button>
@@ -151,31 +154,32 @@ export default function ItineraryPanel({
               value={itineraryTitle}
               onChange={(e) => onChangeItineraryTitle(e.target.value)}
               className="w-full max-w-[60vw] font-semibold bg-transparent border-b border-neutral-700/70 focus:border-neutral-100 outline-none truncate"
-              placeholder="旅程名（保存/カレンダーのタイトル）"
-              aria-label="旅程名"
+              placeholder={t("itinerary.titlePlaceholder")}
+              aria-label={t("itinerary.titleAria")}
             />
+
             {userLabel ? (
-              <div className="text-xs text-neutral-400 truncate">ログイン中：{userLabel}</div>
+              <div className="text-xs text-neutral-400 truncate">{t("itinerary.signedIn", { user: userLabel })}</div>
             ) : (
-              <div className="text-xs text-neutral-400 truncate">未ログイン（保存時にログインできます）</div>
+              <div className="text-xs text-neutral-400 truncate">{t("itinerary.signedOut")}</div>
             )}
 
             <div className="mt-2 flex items-center gap-2">
-              <div className="text-xs text-neutral-300 shrink-0">出発日</div>
+              <div className="text-xs text-neutral-300 shrink-0">{t("itinerary.startDate")}</div>
               <input
                 type="date"
                 value={baseDate ?? ""}
                 onChange={(e) => onChangeBaseDate(e.target.value)}
                 className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-sm text-neutral-100"
               />
-            
-              <div className="text-xs text-neutral-300 shrink-0 ml-2">合計金額</div>
+
+              <div className="text-xs text-neutral-300 shrink-0 ml-2">{t("itinerary.totalCost")}</div>
               <input
-                value={formatYen(totalCostYen)}
+                value={formatNumber(totalCostYen, locale)}
                 readOnly
                 className="w-28 rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 py-1 text-sm text-neutral-100 text-right"
-                aria-label="合計金額"
-                title="各行の金額メモの合計"
+                aria-label={t("itinerary.totalCostAria")}
+                title={t("itinerary.totalCostTitle")}
               />
             </div>
           </div>
@@ -193,9 +197,9 @@ export default function ItineraryPanel({
               <button
                 onClick={onAddToCalendar}
                 className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-900 text-sm whitespace-nowrap"
-                title="Googleカレンダーに旅程を反映"
+                title={t("itinerary.calendarTitle")}
               >
-                カレンダーに反映
+                {t("itinerary.calendarButton")}
               </button>
             ) : null}
           </div>
@@ -230,7 +234,7 @@ export default function ItineraryPanel({
                   <button
                     onClick={() => onRemoveDay(day)}
                     className="rounded-lg px-2 py-1 text-xs border border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900/40"
-                    title="このDayを削除"
+                    title={t("itinerary.dayRemoveTitle")}
                   >
                     −
                   </button>
@@ -239,7 +243,7 @@ export default function ItineraryPanel({
                   <button
                     onClick={() => onInsertDayAfter(day)}
                     className="rounded-lg px-2 py-1 text-xs bg-neutral-100 text-neutral-900"
-                    title="次のDayとの間にDayを追加"
+                    title={t("itinerary.dayAddTitle")}
                   >
                     ＋
                   </button>
@@ -249,7 +253,8 @@ export default function ItineraryPanel({
               <div className="p-3 space-y-2">
                 {rows.map((v) => {
                   const checked = selectedItemId === v.id;
-                  const nameLabel = v.name?.trim() ? v.name : "（未設定）";
+                  const rawName = String(v.name ?? "").trim();
+                  const nameLabel = rawName ? translateSpotTitle(rawName, lang) : t("common.unset");
 
                   const thumbUrl = String(v.thumbUrl ?? "").trim();
                   const iconKey = String(v.iconKey ?? "").trim();
@@ -262,16 +267,14 @@ export default function ItineraryPanel({
                       key={v.id}
                       className={[
                         "rounded-xl border p-2",
-                        checked
-                          ? "border-neutral-100 bg-neutral-950/60"
-                          : "border-neutral-800 bg-neutral-950/30",
+                        checked ? "border-neutral-100 bg-neutral-950/60" : "border-neutral-800 bg-neutral-950/30",
                       ].join(" ")}
                       onClick={() => onSelectItem(v.id)}
                       role="button"
-                      title="この行に地図/メニューから入力"
+                      title={t("itinerary.rowPickTitle")}
                     >
                       <div className="flex items-start gap-2">
-                        {/* 行選択表示 */}
+                        {/* row select indicator */}
                         <div
                           className={[
                             "mt-0.5 h-4 w-4 rounded-full border",
@@ -279,7 +282,7 @@ export default function ItineraryPanel({
                           ].join(" ")}
                         />
 
-                        {/* サムネイル */}
+                        {/* thumbnail */}
                         <div className="h-12 w-12 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 shrink-0 relative">
                           {thumbUrl ? (
                             <img
@@ -293,12 +296,12 @@ export default function ItineraryPanel({
                           ) : null}
                         </div>
 
-                        {/* ★スポット名：自由記述不可（表示のみ） */}
+                        {/* spot name (display only) */}
                         <div className="min-w-0 flex-1">
-                          {/* アイコン名 */}
+                          {/* icon label */}
                           <div className="text-[11px] text-neutral-400 truncate">{iconLabel}</div>
 
-                          {/* タイトル（左にアイコン） */}
+                          {/* title */}
                           <div className="text-sm font-medium truncate text-neutral-100 flex items-center gap-2">
                             {iconUrl ? (
                               <img
@@ -316,19 +319,19 @@ export default function ItineraryPanel({
                           </div>
                         </div>
 
-                        {/* 右：金額メモ（上）＋リンク（下） */}
+                        {/* right: cost memo (top) + links (bottom) */}
                         <div className="shrink-0 flex flex-col items-end gap-1">
                           <input
                             value={v.costMemo ?? ""}
                             onChange={(e) => onChangeCostMemo(v.id, e.target.value)}
                             onClick={(e) => e.stopPropagation()}
                             className="w-24 rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 py-1 text-sm text-neutral-100 text-right placeholder:text-neutral-500"
-                            placeholder="金額をメモ"
+                            placeholder={t("itinerary.costMemoPlaceholder")}
                             inputMode="numeric"
-                            aria-label="金額メモ"
+                            aria-label={t("itinerary.costMemoAria")}
                           />
 
-                          {/* links（右側下：金額メモの下に移動） */}
+                          {/* links */}
                           <div className="flex flex-wrap justify-end gap-3 text-xs text-neutral-300">
                             {v.mapUrl ? (
                               <a
@@ -338,7 +341,7 @@ export default function ItineraryPanel({
                                 className="hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                Map
+                                {t("common.links.map")}
                               </a>
                             ) : null}
                             {v.hpUrl ? (
@@ -349,7 +352,7 @@ export default function ItineraryPanel({
                                 className="hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                HP
+                                {t("common.links.hp")}
                               </a>
                             ) : null}
                             {v.otaUrl ? (
@@ -360,7 +363,7 @@ export default function ItineraryPanel({
                                 className="hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                OTA
+                                {t("common.links.ota")}
                               </a>
                             ) : null}
 
@@ -381,7 +384,7 @@ export default function ItineraryPanel({
                           </div>
                         </div>
 
-                        {/* 行 + / - */}
+                        {/* row + / - */}
                         <div className="flex flex-col gap-2">
                           <button
                             onClick={(e) => {
@@ -389,7 +392,7 @@ export default function ItineraryPanel({
                               onInsertRowAfter(v.id);
                             }}
                             className="rounded-lg px-2 py-1 text-xs bg-neutral-100 text-neutral-900"
-                            title="次の行との間に行を追加"
+                            title={t("itinerary.rowAddTitle")}
                           >
                             ＋
                           </button>
@@ -400,7 +403,7 @@ export default function ItineraryPanel({
                               onRemoveRow(v.id);
                             }}
                             className="rounded-lg px-2 py-1 text-xs border border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900/40"
-                            title="この行を削除（最後の1行は内容クリア）"
+                            title={t("itinerary.rowRemoveTitle")}
                           >
                             −
                           </button>
@@ -415,9 +418,7 @@ export default function ItineraryPanel({
         })}
       </div>
 
-      <div className="px-3 pb-3 text-xs text-neutral-400">
-        使い方：入力したい行を選択 → 地図クリック or メニュー選択 → 行に反映されます。
-      </div>
+      <div className="px-3 pb-3 text-xs text-neutral-400">{t("itinerary.howTo")}</div>
     </div>
   );
 }
