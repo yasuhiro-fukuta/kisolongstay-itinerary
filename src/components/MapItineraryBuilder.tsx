@@ -10,7 +10,8 @@ import GoogleMapCanvas, {
   type PickedPlace,
 } from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
-import LeftDrawer from "@/components/LeftDrawer";
+import LeftDrawer, { LeftDrawerBody } from "@/components/LeftDrawer";
+import SwipeSnapSheet from "@/components/SwipeSnapSheet";
 import ItineraryPanel from "@/components/ItineraryPanel";
 import AuthModal from "@/components/AuthModal";
 import LanguageSwitch from "@/components/LanguageSwitch";
@@ -116,6 +117,32 @@ async function resolveMapUrlToLatLng(
 
 export default function MapItineraryBuilder() {
   // v3+: Menu (top) / Itinerary (bottom)
+  // Mobile vs PC behaviour switch
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mq = window.matchMedia("(max-width: 768px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+
+    if (mq.addEventListener) {
+      mq.addEventListener("change", update);
+      return () => mq.removeEventListener("change", update);
+    }
+
+    // Safari < 14 fallback
+    // eslint-disable-next-line deprecation/deprecation
+    mq.addListener(update);
+    // eslint-disable-next-line deprecation/deprecation
+    return () => mq.removeListener(update);
+  }, []);
+
+  // Mobile snap states: 0=edge, 1=1/3, 2=2/3
+  const [menuSnap, setMenuSnap] = useState<0 | 1 | 2>(0);
+  const [itinerarySnap, setItinerarySnap] = useState<0 | 1 | 2>(0);
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuExpanded, setMenuExpanded] = useState(false); // top 1/3 ↔ top 2/3
   const [itineraryOpen, setItineraryOpen] = useState(false);
@@ -134,12 +161,48 @@ export default function MapItineraryBuilder() {
 
   // Reset expanded state when closing panels
   useEffect(() => {
+    if (isMobile) return;
     if (!itineraryOpen) setItineraryExpanded(false);
-  }, [itineraryOpen]);
+  }, [itineraryOpen, isMobile]);
 
   useEffect(() => {
+    if (isMobile) return;
     if (!menuOpen) setMenuExpanded(false);
-  }, [menuOpen]);
+  }, [menuOpen, isMobile]);
+
+
+  // Unified helpers (PC keeps existing behaviour, mobile uses snap sheets)
+  const closeMenu = () => {
+    if (isMobile) {
+      setMenuSnap(0);
+    } else {
+      setMenuOpen(false);
+    }
+  };
+
+  const toggleMenu = () => {
+    if (isMobile) {
+      setMenuSnap((s) => (s === 0 ? 1 : 0));
+    } else {
+      setMenuOpen((v) => !v);
+    }
+  };
+
+  const ensureItineraryOpen = (minLevel: 1 | 2 = 1) => {
+    if (isMobile) {
+      setItinerarySnap((s) => ((s < minLevel ? minLevel : s) as 0 | 1 | 2));
+    } else {
+      setItineraryOpen(true);
+    }
+  };
+
+  const toggleItinerary = () => {
+    if (isMobile) {
+      setItinerarySnap((s) => (s === 0 ? 1 : 0));
+    } else {
+      setItineraryOpen((v) => !v);
+    }
+  };
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(selectedItemId);
@@ -270,6 +333,13 @@ export default function MapItineraryBuilder() {
     await doSave(user);
   };
 
+  // Request login (used by ItineraryPanel when an action requires auth)
+  const onRequestLogin = () => {
+    setSaveAfterLogin(false);
+    setAuthOpen(true);
+  };
+
+
   const fallbackTargetId = () => items[0]?.id ?? null;
 
   // Move to next row after filling a row (mobile UX)
@@ -335,7 +405,7 @@ export default function MapItineraryBuilder() {
     );
 
     setSelectedItemId(nextId);
-    setMenuOpen(false);
+    closeMenu();
 
     if (website) void enrichSocialLinks(targetId, website);
   };
@@ -445,7 +515,7 @@ export default function MapItineraryBuilder() {
     });
 
     setSelectedItemId(newItem.id);
-    setItineraryOpen(true);
+    ensureItineraryOpen();
   };
 
   // Day -
@@ -486,7 +556,7 @@ export default function MapItineraryBuilder() {
       setSelectedItemId(newItem.id);
       return next;
     });
-    setItineraryOpen(true);
+    ensureItineraryOpen();
   };
 
   // Row - (keep last row, clear only)
@@ -548,7 +618,7 @@ export default function MapItineraryBuilder() {
       if (loaded.dates?.[0]) setBaseDate(String(loaded.dates[0]));
       setItems(loaded.items);
       showToast(t("toast.loadedItinerary"), 1500);
-      setItineraryOpen(true);
+      ensureItineraryOpen();
     } catch (e: any) {
       const msg = translateErrorMessage(String(e?.message ?? e ?? ""), lang);
       showToast(t("toast.loadFailed", { message: msg }));
@@ -613,8 +683,8 @@ export default function MapItineraryBuilder() {
 
     setItems(next);
     setSelectedItemId(next[0]?.id ?? null);
-    setItineraryOpen(true);
-    setMenuOpen(false);
+    ensureItineraryOpen();
+    closeMenu();
 
     const tourLabel = translateTourName(tourName, lang);
     showToast(t("toast.loadedSampleTour", { tour: tourLabel }), 1500);
@@ -790,7 +860,7 @@ export default function MapItineraryBuilder() {
       <GoogleMapCanvas
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
-        onMapTap={() => setMenuOpen(false)}
+        onMapTap={() => closeMenu()}
         focus={focus}
         area={area}
         items={items}
@@ -805,20 +875,19 @@ export default function MapItineraryBuilder() {
       <MapSearchBar onPick={onPickFromSearch} />
 
       {/* Itinerary (bottom sheet) */}
-      <div
-        className={[
-          "absolute inset-x-0 bottom-0 z-[65]",
-          itineraryExpanded ? "h-[66vh]" : "h-[33vh]",
-          "transition-transform duration-300 ease-out",
-          itineraryOpen ? "translate-y-0 pointer-events-auto" : "translate-y-full pointer-events-none",
-        ].join(" ")}
-      >
-        <div className="h-full rounded-t-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
+      {isMobile ? (
+        <SwipeSnapSheet
+          anchor="bottom"
+          snap={itinerarySnap}
+          onSnapChange={setItinerarySnap}
+          className="z-[65] bg-neutral-950/90 border border-neutral-800 shadow-xl rounded-t-2xl overflow-hidden"
+          contentClassName="h-full w-full"
+        >
           <ItineraryPanel
             itineraryTitle={itineraryTitle}
             onChangeItineraryTitle={(v) => {
-              setTitleTouched(true);
               setItineraryTitle(v);
+              setTitleTouched(true);
             }}
             items={items}
             baseDate={baseDate}
@@ -831,39 +900,99 @@ export default function MapItineraryBuilder() {
             onInsertRowAfter={insertRowAfter}
             onRemoveRow={removeRow}
             onSave={onSaveClick}
-            onAddToCalendar={user ? onAddToCalendar : undefined}
+            onAddToCalendar={onAddToCalendar}
             saveButtonText={saveButtonText}
             saveDisabled={saving}
             userLabel={userLabel}
-            expanded={itineraryExpanded}
-            onToggleExpand={() => setItineraryExpanded((v) => !v)}
+            expanded={itinerarySnap === 2}
           />
+        </SwipeSnapSheet>
+      ) : (
+        <div
+          className={[
+            "absolute left-0 right-0 bottom-0 z-[65]",
+            itineraryOpen ? "translate-y-0" : "translate-y-full pointer-events-none",
+            "transition-transform duration-300",
+            itineraryExpanded ? "h-[66vh]" : "h-[33vh]",
+          ].join(" ")}
+        >
+          <div className="h-full rounded-t-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
+            <ItineraryPanel
+              itineraryTitle={itineraryTitle}
+              onChangeItineraryTitle={(v) => {
+                setItineraryTitle(v);
+                setTitleTouched(true);
+              }}
+              items={items}
+              baseDate={baseDate}
+              onChangeBaseDate={setBaseDate}
+              selectedItemId={selectedItemId}
+              onSelectItem={(id) => setSelectedItemId(id)}
+              onChangeCostMemo={onChangeCostMemo}
+              onInsertDayAfter={insertDayAfter}
+              onRemoveDay={removeDay}
+              onInsertRowAfter={insertRowAfter}
+              onRemoveRow={removeRow}
+              onSave={onSaveClick}
+              onAddToCalendar={onAddToCalendar}
+              saveButtonText={saveButtonText}
+              saveDisabled={saving}
+              userLabel={userLabel}
+              expanded={itineraryExpanded}
+              onToggleExpand={() => setItineraryExpanded((v) => !v)}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Menu (top sheet) */}
       {leftMenuData ? (
-        <LeftDrawer
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          expanded={menuExpanded}
-          onToggleExpand={() => setMenuExpanded((v) => !v)}
-          categories={leftMenuData.categories}
-          byCategory={leftMenuData.byCategory}
-          onCategoryPicked={onCategoryPicked}
-          onSelectPlace={onSelectFromMenu}
-          sampleTours={sampleData?.tours ?? []}
-          onLoadSampleTour={onLoadSampleTour}
-          savedItineraries={savedList}
-          onLoadItinerary={onLoadItinerary}
-          userLabel={userLabel}
-          onRequestLogin={() => setAuthOpen(true)}
-        />
+        isMobile ? (
+          <SwipeSnapSheet
+            anchor="top"
+            snap={menuSnap}
+            onSnapChange={setMenuSnap}
+            className="z-[70] bg-neutral-950/95 backdrop-blur shadow-2xl border border-neutral-800 rounded-b-2xl overflow-hidden text-neutral-100"
+            contentClassName="h-full w-full"
+          >
+            <div className="h-full overflow-auto p-2 space-y-4">
+              <LeftDrawerBody
+                categories={leftMenuData.categories}
+                byCategory={leftMenuData.byCategory}
+                onCategoryPicked={onCategoryPicked}
+                onSelectPlace={onSelectFromMenu}
+                sampleTours={sampleData?.tours ?? []}
+                onLoadSampleTour={onLoadSampleTour}
+                savedItineraries={savedList}
+                onLoadItinerary={onLoadItinerary}
+                userLabel={userLabel}
+                onRequestLogin={onRequestLogin}
+              />
+            </div>
+          </SwipeSnapSheet>
+        ) : (
+          <LeftDrawer
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            expanded={menuExpanded}
+            onToggleExpand={() => setMenuExpanded((v) => !v)}
+            categories={leftMenuData.categories}
+            byCategory={leftMenuData.byCategory}
+            onCategoryPicked={onCategoryPicked}
+            onSelectPlace={onSelectFromMenu}
+            sampleTours={sampleData?.tours ?? []}
+            onLoadSampleTour={onLoadSampleTour}
+            savedItineraries={savedList}
+            onLoadItinerary={onLoadItinerary}
+            userLabel={userLabel}
+            onRequestLogin={onRequestLogin}
+          />
+        )
       ) : null}
 
       {/* Floating toggle buttons (bottom-right) */}
       <button
-        onClick={() => setMenuOpen((v) => !v)}
+        onClick={() => toggleMenu()}
         className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
         title={t("app.menuButton")}
         aria-label={t("app.menuButton")}
@@ -872,7 +1001,7 @@ export default function MapItineraryBuilder() {
       </button>
 
       <button
-        onClick={() => setItineraryOpen((v) => !v)}
+        onClick={() => toggleItinerary()}
         className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
         title={t("app.itineraryButton")}
         aria-label={t("app.itineraryButton")}
