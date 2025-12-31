@@ -10,7 +10,8 @@ import GoogleMapCanvas, {
   type PickedPlace,
 } from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
-import LeftDrawer, { LeftDrawerBody } from "@/components/LeftDrawer";
+import { LeftDrawerBody } from "@/components/LeftDrawer";
+import DesktopSidePanel from "@/components/DesktopSidePanel";
 import SwipeSnapSheet from "@/components/SwipeSnapSheet";
 import ItineraryPanel from "@/components/ItineraryPanel";
 import AuthModal from "@/components/AuthModal";
@@ -144,9 +145,7 @@ export default function MapItineraryBuilder() {
   const [itinerarySnap, setItinerarySnap] = useState<0 | 1 | 2>(0);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuExpanded, setMenuExpanded] = useState(false); // top 1/3 ↔ top 2/3
   const [itineraryOpen, setItineraryOpen] = useState(false);
-  const [itineraryExpanded, setItineraryExpanded] = useState(false); // 1/3 ↔ 2/3
 
   const { lang, t } = useI18n();
 
@@ -159,16 +158,7 @@ export default function MapItineraryBuilder() {
     if (!titleTouched) setItineraryTitle(t("itinerary.defaultTitle"));
   }, [lang, t, titleTouched]);
 
-  // Reset expanded state when closing panels
-  useEffect(() => {
-    if (isMobile) return;
-    if (!itineraryOpen) setItineraryExpanded(false);
-  }, [itineraryOpen, isMobile]);
-
-  useEffect(() => {
-    if (isMobile) return;
-    if (!menuOpen) setMenuExpanded(false);
-  }, [menuOpen, isMobile]);
+  // Note: mobile uses snap sheets, desktop uses left/right panels.
 
 
   // Unified helpers (PC keeps existing behaviour, mobile uses snap sheets)
@@ -860,7 +850,11 @@ export default function MapItineraryBuilder() {
       <GoogleMapCanvas
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
-        onMapTap={() => closeMenu()}
+        onMapTap={() => {
+          // On mobile, the menu covers the map so a tap should dismiss it.
+          // On desktop, side panels don't block the map, so we keep them as-is.
+          if (isMobile) closeMenu();
+        }}
         focus={focus}
         area={area}
         items={items}
@@ -908,50 +902,54 @@ export default function MapItineraryBuilder() {
           />
         </SwipeSnapSheet>
       ) : (
-        <div
-          className={[
-            "absolute left-0 right-0 bottom-0 z-[65]",
-            itineraryOpen ? "translate-y-0" : "translate-y-full pointer-events-none",
-            "transition-transform duration-300",
-            itineraryExpanded ? "h-[66vh]" : "h-[33vh]",
-          ].join(" ")}
+        <DesktopSidePanel
+          side="right"
+          open={itineraryOpen}
+          onOpenChange={setItineraryOpen}
+          width={480}
+          className="z-[65] w-[480px] max-w-[92vw]"
         >
-          <div className="h-full rounded-t-2xl bg-neutral-950/90 border border-neutral-800 shadow-xl overflow-hidden">
-            <ItineraryPanel
-              itineraryTitle={itineraryTitle}
-              onChangeItineraryTitle={(v) => {
-                setItineraryTitle(v);
-                setTitleTouched(true);
-              }}
-              items={items}
-              baseDate={baseDate}
-              onChangeBaseDate={setBaseDate}
-              selectedItemId={selectedItemId}
-              onSelectItem={(id) => setSelectedItemId(id)}
-              onChangeCostMemo={onChangeCostMemo}
-              onInsertDayAfter={insertDayAfter}
-              onRemoveDay={removeDay}
-              onInsertRowAfter={insertRowAfter}
-              onRemoveRow={removeRow}
-              onSave={onSaveClick}
-              onAddToCalendar={onAddToCalendar}
-              saveButtonText={saveButtonText}
-              saveDisabled={saving}
-              userLabel={userLabel}
-              expanded={itineraryExpanded}
-              onToggleExpand={() => setItineraryExpanded((v) => !v)}
-            />
+          <div className="h-full p-2">
+            {/* Give the right panel an opaque-ish background like the old bottom sheet.
+                Without this, day sections look "skeleton" on top of the map. */}
+            <div className="h-full bg-neutral-950/90 backdrop-blur-xl border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden">
+              <ItineraryPanel
+                itineraryTitle={itineraryTitle}
+                onChangeItineraryTitle={(v) => {
+                  setItineraryTitle(v);
+                  setTitleTouched(true);
+                }}
+                items={items}
+                baseDate={baseDate}
+                onChangeBaseDate={setBaseDate}
+                selectedItemId={selectedItemId}
+                onSelectItem={(id) => setSelectedItemId(id)}
+                onChangeCostMemo={onChangeCostMemo}
+                onInsertDayAfter={insertDayAfter}
+                onRemoveDay={removeDay}
+                onInsertRowAfter={insertRowAfter}
+                onRemoveRow={removeRow}
+                onSave={onSaveClick}
+                onAddToCalendar={onAddToCalendar}
+                saveButtonText={saveButtonText}
+                saveDisabled={saving}
+                userLabel={userLabel}
+                expanded
+              />
+            </div>
           </div>
-        </div>
+        </DesktopSidePanel>
       )}
 
-      {/* Menu (top sheet) */}
-      {leftMenuData ? (
-        isMobile ? (
+      {/* Menu */}
+      {isMobile ? (
+        leftMenuData ? (
           <SwipeSnapSheet
             anchor="top"
             snap={menuSnap}
             onSnapChange={setMenuSnap}
+            // Keep the swipe handle below the fixed search bar on mobile.
+            topOffset={72}
             className="z-[70] bg-neutral-950/95 backdrop-blur shadow-2xl border border-neutral-800 rounded-b-2xl overflow-hidden text-neutral-100"
             contentClassName="h-full w-full"
           >
@@ -970,44 +968,64 @@ export default function MapItineraryBuilder() {
               />
             </div>
           </SwipeSnapSheet>
-        ) : (
-          <LeftDrawer
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
-            expanded={menuExpanded}
-            onToggleExpand={() => setMenuExpanded((v) => !v)}
-            categories={leftMenuData.categories}
-            byCategory={leftMenuData.byCategory}
-            onCategoryPicked={onCategoryPicked}
-            onSelectPlace={onSelectFromMenu}
-            sampleTours={sampleData?.tours ?? []}
-            onLoadSampleTour={onLoadSampleTour}
-            savedItineraries={savedList}
-            onLoadItinerary={onLoadItinerary}
-            userLabel={userLabel}
-            onRequestLogin={onRequestLogin}
-          />
-        )
+        ) : null
+      ) : (
+        <DesktopSidePanel
+          side="left"
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          width={360}
+          className="z-[70] w-[360px] max-w-[92vw] text-neutral-100"
+        >
+          <div className="h-full p-2">
+            <div className="h-full bg-neutral-950/95 backdrop-blur border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden">
+              {leftMenuData ? (
+                <div className="h-full overflow-auto p-2 space-y-4">
+                  <LeftDrawerBody
+                    categories={leftMenuData.categories}
+                    byCategory={leftMenuData.byCategory}
+                    onCategoryPicked={onCategoryPicked}
+                    onSelectPlace={onSelectFromMenu}
+                    sampleTours={sampleData?.tours ?? []}
+                    onLoadSampleTour={onLoadSampleTour}
+                    savedItineraries={savedList}
+                    onLoadItinerary={onLoadItinerary}
+                    userLabel={userLabel}
+                    onRequestLogin={onRequestLogin}
+                  />
+                </div>
+              ) : (
+                <div className="p-4 text-neutral-300">{t("common.loading")}</div>
+              )}
+            </div>
+          </div>
+        </DesktopSidePanel>
+      )}
+
+      {/* Floating toggle buttons (mobile only) */}
+      {isMobile ? (
+        <>
+          <button
+            onClick={() => toggleMenu()}
+            className="absolute right-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
+            style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 152px)" }}
+            title={t("app.menuButton")}
+            aria-label={t("app.menuButton")}
+          >
+            ≡
+          </button>
+
+          <button
+            onClick={() => toggleItinerary()}
+            className="absolute right-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
+            style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 92px)" }}
+            title={t("app.itineraryButton")}
+            aria-label={t("app.itineraryButton")}
+          >
+            📝
+          </button>
+        </>
       ) : null}
-
-      {/* Floating toggle buttons (bottom-right) */}
-      <button
-        onClick={() => toggleMenu()}
-        className="absolute right-4 bottom-20 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
-        title={t("app.menuButton")}
-        aria-label={t("app.menuButton")}
-      >
-        ≡
-      </button>
-
-      <button
-        onClick={() => toggleItinerary()}
-        className="absolute right-4 bottom-4 z-[80] rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 w-12 h-12 grid place-items-center text-neutral-100"
-        title={t("app.itineraryButton")}
-        aria-label={t("app.itineraryButton")}
-      >
-        📝
-      </button>
 
       {toastMessage ? (
         <div className="absolute left-1/2 top-24 -translate-x-1/2 z-[90] pointer-events-none">

@@ -33,6 +33,15 @@ export type SwipeSnapSheetProps = {
   midRatio?: number;
   /** Visible height ratio for the 2/3 stop. */
   maxRatio?: number;
+  /**
+   * Extra offset from the viewport edge (px).
+   *
+   * Useful on mobile to avoid overlapping fixed UI such as the search bar.
+   * - anchor="top"    -> applied to the sheet's `top`
+   * - anchor="bottom" -> applied to the sheet's `bottom`
+   */
+  topOffset?: number;
+  bottomOffset?: number;
   className?: string;
   /** Additional classes for the content container. */
   contentClassName?: string;
@@ -55,6 +64,8 @@ export default function SwipeSnapSheet({
   handleHeight = 32,
   midRatio = 1 / 3,
   maxRatio = 2 / 3,
+  topOffset = 0,
+  bottomOffset = 0,
   className = "",
   contentClassName = "",
   children,
@@ -88,9 +99,12 @@ export default function SwipeSnapSheet({
     };
   }, []);
 
+  const edgeOffsetPx = anchor === "top" ? topOffset : bottomOffset;
   const { minH, midH, maxH, snapHeights } = useMemo(() => {
-    const maxHpx = Math.max(handleHeight, Math.round(vh * maxRatio));
-    const midHpx = Math.max(handleHeight, Math.round(vh * midRatio));
+    const available = Math.max(handleHeight, vh - edgeOffsetPx);
+
+    const maxHpx = Math.max(handleHeight, Math.round(available * maxRatio));
+    const midHpx = Math.max(handleHeight, Math.round(available * midRatio));
     const minHpx = Math.max(16, Math.round(handleHeight));
 
     // Ensure ordering: min <= mid <= max
@@ -101,7 +115,7 @@ export default function SwipeSnapSheet({
       maxH: sorted[2],
       snapHeights: sorted,
     };
-  }, [handleHeight, maxRatio, midRatio, vh]);
+  }, [edgeOffsetPx, handleHeight, maxRatio, midRatio, vh]);
 
   const height = useMotionValue(snapHeights[snap] ?? minH);
 
@@ -178,14 +192,19 @@ export default function SwipeSnapSheet({
     else onSnapChange(0);
   };
 
-  const basePos = anchor === "top" ? "absolute inset-x-0 top-0" : "absolute inset-x-0 bottom-0";
-  const handlePos = anchor === "top" ? "absolute inset-x-0 bottom-0" : "absolute inset-x-0 top-0";
-  const contentPad = anchor === "top" ? { paddingBottom: minH } : { paddingTop: minH };
+  const basePos = "absolute inset-x-0";
+  const handlePos = anchor === "top" ? "absolute inset-x-0 top-0" : "absolute inset-x-0 top-0";
+  const contentPad = anchor === "top" ? { paddingTop: minH } : { paddingTop: minH };
+
+  const edgeStyle =
+    anchor === "top"
+      ? { top: `calc(env(safe-area-inset-top, 0px) + ${topOffset}px)` }
+      : { bottom: `calc(env(safe-area-inset-bottom, 0px) + ${bottomOffset}px)` };
 
   return (
     <motion.section
       className={`${basePos} ${className}`}
-      style={{ height }}
+      style={{ height, ...edgeStyle }}
       aria-hidden={false}
     >
       <div className="relative w-full h-full">
