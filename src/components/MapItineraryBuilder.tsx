@@ -846,7 +846,7 @@ export default function MapItineraryBuilder() {
     : t("save.signInToSave");
 
   return (
-    <div className="h-dvh w-dvw overflow-hidden relative bg-neutral-950">
+    <div className="h-[100svh] w-[100vw] overflow-hidden relative bg-neutral-950">
       <GoogleMapCanvas
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
