@@ -196,7 +196,11 @@ export default function MapSearchBar({ onPick }: { onPick: (p: PickedPlace) => v
   const showList = open && (predictions.length > 0 || loading);
 
   return (
-    <div ref={rootRef} className="absolute left-1/2 top-[calc(env(safe-area-inset-top,0px)+28px)] z-[50] -translate-x-1/2 pointer-events-auto md:top-4">
+    <div
+      ref={rootRef}
+      // Mobile: push down so it doesn't overlap the collapsed top swipe-handle bar.
+      className="absolute left-1/2 top-[calc(env(safe-area-inset-top,0px)+44px)] z-[50] -translate-x-1/2 pointer-events-auto md:top-4"
+    >
       <div className="relative w-[min(92vw,420px)]">
         {/* search bar */}
         <div className="flex items-center gap-2 rounded-full bg-neutral-950/80 backdrop-blur shadow-lg border border-neutral-800 px-3 py-2">

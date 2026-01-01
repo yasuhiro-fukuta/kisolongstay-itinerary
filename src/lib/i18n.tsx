@@ -285,6 +285,7 @@ export function translateSpotTitle(title: string, lang: Lang): string {
     "ふくすけ": "Fukusuke",
     "ほていや": "Hoteiya",
     "みなみ木曽ロングトレイルレンタルE-bike": "Minami-Kiso Long Trail Rental E-bike",
+    "みなみ木曽ロングトレイル（e-bikeレンタル）": "South Kiso Long Trail Services (Rental E-bike)",
     "ニックカール(ツアーガイド)": "Nick Carl (Tour guide)",
     "ピエロ": "Pierrot",
     "マイケルキング(ツアーガイド)": "Michael King (Tour guide)",

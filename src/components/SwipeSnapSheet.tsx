@@ -193,8 +193,8 @@ export default function SwipeSnapSheet({
   };
 
   const basePos = "absolute inset-x-0";
-  const handlePos = anchor === "top" ? "absolute inset-x-0 top-0" : "absolute inset-x-0 top-0";
-  const contentPad = anchor === "top" ? { paddingTop: minH } : { paddingTop: minH };
+  const handlePos = anchor === "top" ? "absolute inset-x-0 bottom-0" : "absolute inset-x-0 top-0";
+  const contentPad = anchor === "top" ? { paddingBottom: minH } : { paddingTop: minH };
 
   const edgeStyle =
     anchor === "top"

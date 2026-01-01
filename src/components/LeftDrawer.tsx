@@ -106,7 +106,7 @@ export function LeftDrawerBody({
       {/* 2) Categories (horizontal) */}
       <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-2">
         <div className="text-xs text-neutral-400 mb-2">{t("menu.categories")}</div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-2 pb-1">
           {categories.map((c) => {
             const on = c === active;
             const label = translateCategory(c, lang);

@@ -948,8 +948,8 @@ export default function MapItineraryBuilder() {
             anchor="top"
             snap={menuSnap}
             onSnapChange={setMenuSnap}
-            // Keep the swipe handle below the fixed search bar on mobile.
-            topOffset={72}
+            // The menu sheet should live at the very top edge.
+            // We keep the search bar *below* the collapsed handle area instead.
             className="z-[70] bg-neutral-950/95 backdrop-blur shadow-2xl border border-neutral-800 rounded-b-2xl overflow-hidden text-neutral-100"
             contentClassName="h-full w-full"
           >

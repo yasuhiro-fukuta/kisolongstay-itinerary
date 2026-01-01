@@ -8,13 +8,13 @@ export type MenuRow = {
   icon: string;
   title: string;
   mapUrl: string; // 任意
-  hpUrl: string;  // 任意
+  hpUrl: string; // 任意
   otaUrl: string; // 任意
 };
 
 export type LeftMenuData = {
   rows: MenuRow[];
-  categories: string[]; // 全域は最後固定
+  categories: string[]; // 「全域」は先頭固定
   byCategory: Map<string, MenuRow[]>;
   byId: Map<string, MenuRow>;
 };
@@ -74,7 +74,7 @@ export async function loadLeftMenuData(): Promise<LeftMenuData> {
     const byCategory = new Map<string, MenuRow[]>();
     const byId = new Map<string, MenuRow>();
 
-    const order: string[] = [];
+    const orderNonAll: string[] = [];
     const seen = new Set<string>();
 
     for (const row of rows) {
@@ -83,17 +83,18 @@ export async function loadLeftMenuData(): Promise<LeftMenuData> {
       if (!byCategory.has(row.category)) byCategory.set(row.category, []);
       byCategory.get(row.category)!.push(row);
 
+      // 「全域」以外は、CSVの初出順で並べる
       if (row.category !== "全域" && !seen.has(row.category)) {
         seen.add(row.category);
-        order.push(row.category);
+        orderNonAll.push(row.category);
       }
     }
 
-    // 全域は必ず最後・存在しなければ空で作る
-    order.push("全域");
+    // 「全域」は必ず先頭。存在しなければ空で作る
     if (!byCategory.has("全域")) byCategory.set("全域", []);
+    const categories = ["全域", ...orderNonAll];
 
-    return { rows, categories: order, byCategory, byId };
+    return { rows, categories, byCategory, byId };
   })();
 
   return cached;
