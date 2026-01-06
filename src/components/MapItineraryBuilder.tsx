@@ -1,8 +1,9 @@
 // src/components/MapItineraryBuilder.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
 import GoogleMapCanvas, {
   type AreaFocus,
@@ -17,7 +18,7 @@ import ItineraryPanel from "@/components/ItineraryPanel";
 import AuthModal from "@/components/AuthModal";
 import LanguageSwitch from "@/components/LanguageSwitch";
 
-import { auth } from "@/lib/firebaseClient";
+import { auth, db } from "@/lib/firebaseClient";
 import { makeEmptySpot, makeInitialItems, type ItineraryItem } from "@/lib/itinerary";
 import {
   saveItinerary,
@@ -220,11 +221,32 @@ export default function MapItineraryBuilder() {
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 
+  // Label shown in the itinerary panel when signed in.
+  // (Avoids runtime ReferenceError when passed down.)
+  const userLabel = useMemo(() => {
+    if (!user) return undefined;
+    return user.displayName || user.email || user.uid;
+  }, [user]);
+
   const [savedList, setSavedList] = useState<SavedItineraryMeta[]>([]);
   const [saving, setSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [saveAfterLogin, setSaveAfterLogin] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+
+  // GPS tracking (writes to users/{uid}/gps_logs every 1 minute)
+  const [gpsTracking, setGpsTracking] = useState(false);
+  const gpsTrackingRef = useRef(false);
+  const gpsIntervalRef = useRef<number | null>(null);
+  const gpsStopTimerRef = useRef<number | null>(null);
+  const gpsTrackingStartMsRef = useRef<number | null>(null);
+  const gpsWriteInFlightRef = useRef(false);
+
+  const GPS_INTERVAL_MS = 60_000; // 1 minute
+  const GPS_MAX_DURATION_MS = 72 * 60 * 60 * 1000; // 72 hours
+  const [gpsStartAfterLogin, setGpsStartAfterLogin] = useState(false);
+  const gpsLastErrorToastAtRef = useRef<number>(0);
+
 
   // CSV data
   const [leftMenuData, setLeftMenuData] = useState<LeftMenuData | null>(null);
@@ -252,82 +274,190 @@ export default function MapItineraryBuilder() {
     }
   };
 
-  const flashSaved = (ms = 1500) => {
-    setSavedFlash(true);
-    if (savedFlashTimerRef.current) {
-      window.clearTimeout(savedFlashTimerRef.current);
-      savedFlashTimerRef.current = null;
-    }
-    savedFlashTimerRef.current = window.setTimeout(() => {
-      setSavedFlash(false);
-      savedFlashTimerRef.current = null;
-    }, ms);
-  };
 
-  const userLabel = useMemo(() => {
-    if (!user) return null;
-    return user.displayName || user.email || t("user.fallback");
-  }, [user, t]);
+  function formatHHMMSS(d: Date): string {
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
 
-  useEffect(() => {
-    loadLeftMenuData()
-      .then(setLeftMenuData)
-      .catch((e) => console.error("left_menu.csv load failed:", e));
+  function isGeoPositionError(err: unknown): err is GeolocationPositionError {
+    return !!err && typeof err === "object" && "code" in (err as any);
+  }
 
-    loadSampleTourData()
-      .then(setSampleData)
-      .catch((e) => console.error("sampletour.csv load failed:", e));
-  }, []);
-
-  useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const list = await listItineraries(u.uid);
-        setSavedList(list);
-      } else {
-        setSavedList([]);
+  function getCurrentPositionAsync(): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        reject(new Error("Geolocation not supported"));
+        return;
       }
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 15000,
+      });
     });
-  }, []);
+  }
 
-  const refreshList = async (u: User) => {
-    const list = await listItineraries(u.uid);
-    setSavedList(list);
-  };
+  async function writeGpsLog(u: User, pos: GeolocationPosition) {
+    const now = new Date();
+    const docData = {
+      uid: u.uid,
+      email: u.email ?? null,
+      displayName: u.displayName ?? null,
+      time: formatHHMMSS(now),
+      localISO: now.toISOString(),
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy: pos.coords.accuracy ?? null,
+      altitude: pos.coords.altitude ?? null,
+      heading: pos.coords.heading ?? null,
+      speed: pos.coords.speed ?? null,
+      sessionStartedAt:
+        gpsTrackingStartMsRef.current != null
+          ? new Date(gpsTrackingStartMsRef.current).toISOString()
+          : null,
+      createdAt: serverTimestamp(),
+    };
 
-  const doSave = async (u: User) => {
-    if (saving) return;
-    setSaving(true);
-    setSavedFlash(false);
+    await addDoc(collection(db, "users", u.uid, "gps_logs"), docData);
+  }
+
+  function stopGpsTracking(reason: "manual" | "timeout" | "logout" = "manual") {
+    if (!gpsTrackingRef.current) return;
+
+    gpsTrackingRef.current = false;
+    setGpsTracking(false);
+
+    if (gpsIntervalRef.current != null) {
+      window.clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = null;
+    }
+    if (gpsStopTimerRef.current != null) {
+      window.clearTimeout(gpsStopTimerRef.current);
+      gpsStopTimerRef.current = null;
+    }
+
+    gpsTrackingStartMsRef.current = null;
+
+    if (reason === "timeout") {
+      showToast(t("toast.gpsStoppedTimeout"));
+    } else {
+      showToast(t("toast.gpsStopped"));
+    }
+  }
+
+  
+  async function recordGpsOnce(userOverride?: User): Promise<boolean> {
+    if (!gpsTrackingRef.current) return false;
+    const u = userOverride ?? user;
+    if (!u) return false;
+
+    // Prevent overlapping writes (e.g., if a slow GPS read overlaps the next tick)
+    if (gpsWriteInFlightRef.current) return true;
+    gpsWriteInFlightRef.current = true;
 
     try {
-      await saveItinerary({ uid: u.uid, dates, items, title: itineraryTitle });
-      await refreshList(u);
-      flashSaved(1500);
-      showToast(t("toast.saved"), 1500);
-    } catch (e: any) {
-      const msg = translateErrorMessage(String(e?.message ?? e ?? ""), lang);
-      showToast(t("toast.saveFailed", { message: msg }));
-    } finally {
-      setSaving(false);
-    }
-  };
+      const pos = await getCurrentPositionAsync();
+      await writeGpsLog(u, pos);
+      return true;
+    } catch (err: unknown) {
+      // Common geolocation errors:
+      // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+      if (isGeoPositionError(err)) {
+        if (err.code === 1) {
+          showToast(t("toast.gpsErrorPermission"));
+          stopGpsTracking("manual");
+          return false;
+        }
+        if (err.code === 3) {
+          // Avoid spamming a toast every minute if GPS is temporarily unavailable
+          const now = Date.now();
+          if (now - gpsLastErrorToastAtRef.current > 10_000) {
+            gpsLastErrorToastAtRef.current = now;
+            showToast(t("toast.gpsErrorTimeout"));
+          }
+          return false;
+        }
+      }
 
-  const onSaveClick = async () => {
+      const message = String((err as any)?.message || err || "");
+      if (message.toLowerCase().includes("permission")) {
+        showToast(t("toast.gpsErrorDbPermission"));
+        stopGpsTracking("manual");
+        return false;
+      }
+
+      showToast(t("toast.gpsError"));
+      return false;
+    } finally {
+      gpsWriteInFlightRef.current = false;
+    }
+  }
+
+  async function startGpsTracking(userOverride?: User): Promise<boolean> {
+    try {
+      if (gpsTrackingRef.current) {
+        showToast(t("toast.gpsAlreadyOn"));
+        return true;
+      }
+
+      const u = userOverride ?? user;
+      if (!u) return false;
+
+      const now = Date.now();
+      gpsTrackingStartMsRef.current = now;
+      gpsTrackingRef.current = true;
+      setGpsTracking(true);
+
+      showToast(t("toast.gpsStarted"));
+
+      // Log once immediately (also triggers the permission prompt)
+      await recordGpsOnce(u);
+      if (!gpsTrackingRef.current) return false;
+
+      // Start interval (1 minute)
+      gpsIntervalRef.current = window.setInterval(() => {
+        if (!gpsTrackingRef.current) return;
+
+        const startMs = gpsTrackingStartMsRef.current ?? Date.now();
+        if (Date.now() - startMs >= GPS_MAX_DURATION_MS) {
+          stopGpsTracking("timeout");
+          return;
+        }
+
+        recordGpsOnce(u);
+      }, GPS_INTERVAL_MS);
+
+      // Auto stop after 72 hours (safety net)
+      gpsStopTimerRef.current = window.setTimeout(() => {
+        stopGpsTracking("timeout");
+      }, GPS_MAX_DURATION_MS);
+
+      return true;
+    } catch (err) {
+      console.error(err);
+      showToast(t("toast.gpsError"));
+      stopGpsTracking("manual");
+      return false;
+    }
+  }
+
+  const onGpsOnClick = () => {
     if (!user) {
-      setSaveAfterLogin(true);
+      setGpsStartAfterLogin(true);
       setAuthOpen(true);
+      showToast(t("toast.gpsNeedLogin"));
       return;
     }
-    await doSave(user);
+    void startGpsTracking();
   };
 
-  // Request login (used by ItineraryPanel when an action requires auth)
-  const onRequestLogin = () => {
-    setSaveAfterLogin(false);
-    setAuthOpen(true);
+  const onGpsOffClick = () => {
+    stopGpsTracking("manual");
   };
+
 
 
   const fallbackTargetId = () => items[0]?.id ?? null;
@@ -436,7 +566,8 @@ export default function MapItineraryBuilder() {
 
     if (loc) {
       setItems((prev) => prev.map((it) => (it.id === targetId ? { ...it, lat: loc.lat, lng: loc.lng } : it)));
-      setFocus({ kind: "latlng", lat: loc.lat, lng: loc.lng, nonce: makeNonce() });
+      // Spot selection should zoom in.
+      setFocus({ kind: "latlng", lat: loc.lat, lng: loc.lng, zoom: 15, nonce: makeNonce() });
     }
   };
 
@@ -478,7 +609,8 @@ export default function MapItineraryBuilder() {
     if (website) void enrichSocialLinks(targetId, website);
 
     if (typeof p.lat === "number" && typeof p.lng === "number") {
-      setFocus({ kind: "latlng", lat: p.lat, lng: p.lng, nonce: makeNonce() });
+      // Spot selection should zoom in.
+      setFocus({ kind: "latlng", lat: p.lat, lng: p.lng, zoom: 15, nonce: makeNonce() });
     }
   };
 
@@ -837,7 +969,67 @@ export default function MapItineraryBuilder() {
     }
   };
 
-  const saveButtonText = user
+  
+  const refreshList = useCallback(
+    async (u?: User | null) => {
+      if (!u) {
+        setSavedList([]);
+        return;
+      }
+      try {
+        const list = await listItineraries(u.uid);
+        setSavedList(list);
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    void refreshList(user);
+  }, [user, refreshList]);
+
+  const doSave = useCallback(
+    async (u: User): Promise<boolean> => {
+      try {
+        setSaving(true);
+        await saveItinerary({
+          uid: u.uid,
+          startDate: baseDate || yyyyMmDd(new Date()),
+          items,
+          title: itineraryTitle.trim() || "Itinerary",
+        });
+        setSavedFlash(true);
+        showToast(lang === "ja" ? "保存しました" : "Saved");
+        await refreshList(u);
+        return true;
+      } catch (e) {
+        console.error(e);
+        showToast(lang === "ja" ? "保存に失敗しました" : "Failed to save");
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [baseDate, items, itineraryTitle, lang, refreshList, showToast]
+  );
+
+  const onSaveClick = useCallback(() => {
+    if (!user) {
+      setSaveAfterLogin(true);
+      setAuthOpen(true);
+      showToast(lang === "ja" ? "保存するにはログインしてください" : "Please sign in to save");
+      return;
+    }
+    void doSave(user);
+  }, [doSave, lang, showToast, user]);
+
+  const onRequestLogin = useCallback(() => {
+    setAuthOpen(true);
+  }, []);
+
+const saveButtonText = user
     ? saving
       ? t("save.saving")
       : savedFlash
@@ -974,8 +1166,8 @@ export default function MapItineraryBuilder() {
           side="left"
           open={menuOpen}
           onOpenChange={setMenuOpen}
-          width={360}
-          className="z-[70] w-[360px] max-w-[92vw] text-neutral-100"
+          width={480}
+          className="z-[70] w-[480px] max-w-[92vw] text-neutral-100"
         >
           <div className="h-full p-2">
             <div className="h-full bg-neutral-950/95 backdrop-blur border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden">
@@ -1027,6 +1219,36 @@ export default function MapItineraryBuilder() {
         </>
       ) : null}
 
+
+      {/* GPS ON / OFF */}
+      <div
+        className="fixed z-[80] flex items-center gap-4 text-sm font-semibold text-neutral-100"
+        style={{
+            // Google Maps の左下UI（コンパス/エラー表示など）と被りやすいので、やや右に寄せる
+            left: "calc(env(safe-area-inset-left, 0px) + 220px)",
+          bottom: isMobile
+            ? "calc(env(safe-area-inset-bottom, 0px) + 64px)"
+            : "16px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onGpsOnClick}
+          className={`underline underline-offset-4 ${
+            gpsTracking ? "text-emerald-300" : "hover:text-white"
+          }`}
+        >
+          {t("gps.on")}
+        </button>
+        <button
+          type="button"
+          onClick={onGpsOffClick}
+          className="underline underline-offset-4 hover:text-white"
+        >
+          {t("gps.off")}
+        </button>
+      </div>
+
       {toastMessage ? (
         <div className="absolute left-1/2 top-24 -translate-x-1/2 z-[90] pointer-events-none">
           <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 shadow px-3 py-2 text-xs whitespace-pre-wrap text-neutral-100 backdrop-blur pointer-events-auto">
@@ -1040,6 +1262,7 @@ export default function MapItineraryBuilder() {
         onClose={() => {
           setAuthOpen(false);
           setSaveAfterLogin(false);
+          setGpsStartAfterLogin(false);
         }}
         onSuccess={(u) => {
           setAuthOpen(false);
@@ -1048,8 +1271,13 @@ export default function MapItineraryBuilder() {
             setSaveAfterLogin(false);
             doSave(u);
           }
+          if (gpsStartAfterLogin) {
+            setGpsStartAfterLogin(false);
+            void startGpsTracking(u);
+          }
         }}
       />
+
     </div>
   );
 }

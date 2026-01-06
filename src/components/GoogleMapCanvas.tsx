@@ -21,8 +21,8 @@ export type PickedPlace = {
 
 export type MapFocus =
   | { kind: "none" }
-  | { kind: "query"; query: string; nonce: string }
-  | { kind: "latlng"; lat: number; lng: number; nonce: string };
+  | { kind: "query"; query: string; nonce: string; zoom?: number }
+  | { kind: "latlng"; lat: number; lng: number; nonce: string; zoom?: number };
 
 export type AreaFocus =
   | { kind: "none" }
@@ -281,7 +281,8 @@ export default function GoogleMapCanvas({
       }
 
       if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, { top: 80, right: 40, bottom: 220, left: 40 });
+        // Pan only (do not change zoom). This matches the desired behaviour on category selection.
+        map.panTo(bounds.getCenter());
       }
       return;
     }
@@ -293,10 +294,9 @@ export default function GoogleMapCanvas({
     extend(path);
 
     if (!bounds.isEmpty()) {
-      map.fitBounds(bounds, { top: 80, right: 40, bottom: 220, left: 40 });
+      map.panTo(bounds.getCenter());
     } else {
       map.panTo({ lat: area.lat, lng: area.lng });
-      map.setZoom(12);
     }
   }, [area, readyTick]);
 
@@ -308,11 +308,13 @@ export default function GoogleMapCanvas({
     if (focus.kind === "none") return;
 
     if (focus.kind === "latlng") {
-      const { lat, lng } = focus;
+      const { lat, lng, zoom } = focus;
       if (!isFiniteLatLng(lat, lng)) return;
 
       map.panTo({ lat, lng });
-      map.setZoom(15);
+      if (typeof zoom === "number" && Number.isFinite(zoom)) {
+        map.setZoom(zoom);
+      }
 
       if (markerRef.current) markerRef.current.setMap(null);
       markerRef.current = new google.maps.Marker({
@@ -341,7 +343,8 @@ export default function GoogleMapCanvas({
       const lng = loc.lng();
 
       map.panTo(loc);
-      map.setZoom(15);
+      const z = typeof (focus as any)?.zoom === "number" ? (focus as any).zoom : 15;
+      map.setZoom(z);
 
       if (markerRef.current) markerRef.current.setMap(null);
       markerRef.current = new google.maps.Marker({

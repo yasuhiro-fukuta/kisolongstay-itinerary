@@ -79,6 +79,26 @@ function formatNumber(n: number, locale: string): string {
   }
 }
 
+type SocialLink = { platform: string; url: string };
+
+function limitSocialLinks(links: unknown): SocialLink[] {
+  if (!Array.isArray(links)) return [];
+  const out: SocialLink[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of links) {
+    const platform = String((raw as any)?.platform ?? "").trim();
+    const url = String((raw as any)?.url ?? "").trim();
+    if (!platform || !url) continue;
+    const key = platform.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ platform, url });
+  }
+
+  return out;
+}
+
 export default function ItineraryPanel({
   itineraryTitle,
   onChangeItineraryTitle,
@@ -319,8 +339,11 @@ export default function ItineraryPanel({
                           </div>
                         </div>
 
-                        {/* right: cost memo (top) + links (bottom) */}
-                        <div className="shrink-0 flex flex-col items-end gap-1">
+                        {/*
+                          right: cost memo (top) + links (bottom)
+                          NOTE: keep this column width bounded so many links won't squeeze the title.
+                        */}
+                        <div className="w-28 shrink-0 flex flex-col items-end gap-1">
                           <input
                             value={v.costMemo ?? ""}
                             onChange={(e) => onChangeCostMemo(v.id, e.target.value)}
@@ -332,7 +355,7 @@ export default function ItineraryPanel({
                           />
 
                           {/* links */}
-                          <div className="flex flex-wrap justify-end gap-3 text-xs text-neutral-300">
+                          <div className="w-full flex flex-wrap justify-end gap-3 text-xs text-neutral-300 mt-1">
                             {v.mapUrl ? (
                               <a
                                 href={v.mapUrl}
@@ -367,20 +390,18 @@ export default function ItineraryPanel({
                               </a>
                             ) : null}
 
-                            {Array.isArray(v.socialLinks)
-                              ? v.socialLinks.map((s) => (
-                                  <a
-                                    key={s.platform + s.url}
-                                    href={s.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="hover:underline"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {s.platform}
-                                  </a>
-                                ))
-                              : null}
+                            {limitSocialLinks(v.socialLinks).map((s) => (
+                              <a
+                                key={s.platform + s.url}
+                                href={s.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {s.platform}
+                              </a>
+                            ))}
                           </div>
                         </div>
 

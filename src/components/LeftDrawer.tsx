@@ -184,9 +184,12 @@ export function LeftDrawerBody({
                     </div>
                   </div>
 
-                  {/* bottom-right: links */}
-                  <div className="shrink-0 flex flex-col items-end self-stretch">
-                    <div className="mt-auto flex flex-wrap justify-end gap-3 text-xs text-neutral-300">
+                  {/*
+                    bottom-right: links
+                    NOTE: keep this column width bounded so links won't squeeze the title.
+                  */}
+                  <div className="w-28 shrink-0 flex flex-col items-end self-stretch">
+                    <div className="w-full mt-auto flex flex-wrap justify-end gap-2 text-xs text-neutral-300">
                       {p.mapUrl ? (
                         <a
                           href={p.mapUrl}

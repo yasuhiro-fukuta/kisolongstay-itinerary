@@ -90,6 +90,21 @@ function uniq<T>(arr: T[]): T[] {
   return out;
 }
 
+function limitPerPlatform(links: SocialLink[], maxPerPlatform = 1): SocialLink[] {
+  const counts = new Map<string, number>();
+  const out: SocialLink[] = [];
+
+  for (const l of links) {
+    const key = String(l.platform ?? "").toLowerCase();
+    const n = counts.get(key) ?? 0;
+    if (n >= maxPerPlatform) continue;
+    counts.set(key, n + 1);
+    out.push(l);
+  }
+
+  return out;
+}
+
 // href 抽出（最小実装）
 function extractHrefs(html: string): string[] {
   const out: string[] = [];
@@ -198,10 +213,12 @@ export async function GET(req: Request) {
     clearTimeout(t);
 
     // 同一ドメイン/同一URLが大量に出るのを避ける
-    const deduped = uniq(socialLinks).slice(0, 12);
+    // さらに、表示がリンクだらけで崩れるのを防ぐため「同一platformは代表1件」に制限。
+    const deduped = uniq(socialLinks);
+    const limited = limitPerPlatform(deduped, 1).slice(0, 12);
 
     return NextResponse.json<SocialResponse>(
-      { ok: true, input, fetchedUrl, socialLinks: deduped },
+      { ok: true, input, fetchedUrl, socialLinks: limited },
       { status: 200 }
     );
   } catch (e: any) {
