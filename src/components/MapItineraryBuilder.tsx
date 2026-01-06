@@ -994,9 +994,11 @@ export default function MapItineraryBuilder() {
     async (u: User): Promise<boolean> => {
       try {
         setSaving(true);
+        // NOTE: itineraryStore.saveItinerary expects { uid, dates, items, title? }.
+        // The itinerary "start date" is derived from `dates[0]`.
         await saveItinerary({
           uid: u.uid,
-          startDate: baseDate || yyyyMmDd(new Date()),
+          dates,
           items,
           title: itineraryTitle.trim() || "Itinerary",
         });
