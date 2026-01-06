@@ -253,6 +253,32 @@ export default function MapItineraryBuilder() {
   const [leftMenuData, setLeftMenuData] = useState<LeftMenuData | null>(null);
   const [sampleData, setSampleData] = useState<SampleTourData | null>(null);
 
+  // Load static menu + sample tours once.
+  // If this effect is missing, desktop menu stays in "loading" forever.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [m, s] = await Promise.all([loadLeftMenuData(), loadSampleTourData()]);
+        if (cancelled) return;
+        setLeftMenuData(m);
+        setSampleData(s);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) {
+          // Avoid infinite "loading"; show empty state instead.
+          setLeftMenuData({ rows: [], categories: ["全域"], byCategory: new Map([["全域", []]]), byId: new Map() });
+          setSampleData({ tours: [], tourItems: {} } as any);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Prevent resolve duplication
   const resolvingRef = useRef(0);
 
