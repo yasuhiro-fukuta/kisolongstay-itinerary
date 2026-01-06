@@ -223,9 +223,10 @@ export default function MapItineraryBuilder() {
 
   // Label shown in the itinerary panel when signed in.
   // (Avoids runtime ReferenceError when passed down.)
-  const userLabel = useMemo(() => {
-    if (!user) return undefined;
-    return user.displayName || user.email || user.uid;
+  const userLabel = useMemo<string | null>(() => {
+    if (!user) return null;
+    // displayName / email can be null depending on the auth provider
+    return user.displayName ?? user.email ?? user.uid ?? null;
   }, [user]);
 
   const [savedList, setSavedList] = useState<SavedItineraryMeta[]>([]);
