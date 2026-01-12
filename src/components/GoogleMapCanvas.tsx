@@ -1,7 +1,7 @@
 // src/components/GoogleMapCanvas.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadGoogleMaps } from "@/lib/googleMapsLoader";
 import type { ItineraryItem } from "@/lib/itinerary";
 import { dayColor } from "@/lib/dayColors";
@@ -22,7 +22,26 @@ export type PickedPlace = {
 export type MapFocus =
   | { kind: "none" }
   | { kind: "query"; query: string; nonce: string; zoom?: number }
-  | { kind: "latlng"; lat: number; lng: number; nonce: string; zoom?: number };
+  | {
+      kind: "latlng";
+      lat: number;
+      lng: number;
+      nonce: string;
+      zoom?: number;
+      /**
+       * If false, we only pan/zoom without placing a marker.
+       * (Used by the desktop Google Maps-like UI when we want to show an area
+       * without dropping a pin.)
+       */
+      marker?: boolean;
+    };
+
+export type ResultMarker = {
+  id: string;
+  lat: number;
+  lng: number;
+  title?: string;
+};
 
 export type AreaFocus =
   | { kind: "none" }
@@ -85,6 +104,9 @@ export default function GoogleMapCanvas({
   focus,
   area,
   items,
+  resultMarkers,
+  selectedResultId,
+  onMapReady,
 }: {
   selectedItemId: string | null;
   onPickPlace: (itemId: string | null, p: PickedPlace) => void;
@@ -92,12 +114,125 @@ export default function GoogleMapCanvas({
   focus: MapFocus;
   area: AreaFocus;
   items: ItineraryItem[];
+  /** Markers for search results (e.g., nearby restaurants). */
+  resultMarkers?: ResultMarker[];
+  /** Optional: highlight/bounce this marker id when it changes. */
+  selectedResultId?: string | null;
+  /** Optional callback when the underlying map + PlacesService is ready. */
+  onMapReady?: (ctx: { map: google.maps.Map; places: google.maps.places.PlacesService }) => void;
 }) {
   const divRef = useRef<HTMLDivElement | null>(null);
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const placesRef = useRef<google.maps.places.PlacesService | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
+
+  // --- Current location (Google Maps-like blue dot) ---
+  const currentLocationMarkerRef = useRef<google.maps.Marker | null>(null);
+  const currentAccuracyCircleRef = useRef<google.maps.Circle | null>(null);
+  const geoWatchIdRef = useRef<number | null>(null);
+
+  const clearCurrentLocationOverlay = useCallback(() => {
+    if (currentLocationMarkerRef.current) {
+      currentLocationMarkerRef.current.setMap(null);
+      currentLocationMarkerRef.current = null;
+    }
+    if (currentAccuracyCircleRef.current) {
+      currentAccuracyCircleRef.current.setMap(null);
+      currentAccuracyCircleRef.current = null;
+    }
+  }, []);
+
+  const stopGeoWatch = useCallback(() => {
+    if (geoWatchIdRef.current != null && typeof navigator !== "undefined" && "geolocation" in navigator) {
+      navigator.geolocation.clearWatch(geoWatchIdRef.current);
+    }
+    geoWatchIdRef.current = null;
+    clearCurrentLocationOverlay();
+  }, [clearCurrentLocationOverlay]);
+
+  const ensureCurrentLocationOverlay = useCallback((map: google.maps.Map) => {
+    if (!currentAccuracyCircleRef.current) {
+      currentAccuracyCircleRef.current = new google.maps.Circle({
+        map,
+        clickable: false,
+        strokeColor: "#4285F4",
+        strokeOpacity: 0.25,
+        strokeWeight: 1,
+        fillColor: "#4285F4",
+        fillOpacity: 0.15,
+        zIndex: 10,
+      });
+    }
+
+    if (!currentLocationMarkerRef.current) {
+      currentLocationMarkerRef.current = new google.maps.Marker({
+        map,
+        clickable: false,
+        optimized: true,
+        zIndex: 11,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: "#4285F4",
+          fillOpacity: 1,
+          strokeColor: "#FFFFFF",
+          strokeOpacity: 1,
+          strokeWeight: 2,
+          scale: 6,
+        },
+      });
+    }
+  }, []);
+
+  const updateCurrentLocationOverlay = useCallback(
+    (pos: { lat: number; lng: number; accuracy?: number }) => {
+      const map = mapRef.current;
+      if (!map) return;
+
+      ensureCurrentLocationOverlay(map);
+
+      const shownLatLng = new google.maps.LatLng(pos.lat, pos.lng);
+      currentLocationMarkerRef.current?.setPosition(shownLatLng);
+
+      if (typeof pos.accuracy === "number" && Number.isFinite(pos.accuracy)) {
+        currentAccuracyCircleRef.current?.setCenter(shownLatLng);
+        currentAccuracyCircleRef.current?.setRadius(Math.max(0, pos.accuracy));
+      }
+    },
+    [ensureCurrentLocationOverlay]
+  );
+
+  const startGeoWatch = useCallback(() => {
+    if (geoWatchIdRef.current != null) return;
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) return;
+
+    geoWatchIdRef.current = navigator.geolocation.watchPosition(
+      (p) => {
+        const lat = p.coords.latitude;
+        const lng = p.coords.longitude;
+        const accuracy = p.coords.accuracy;
+        updateCurrentLocationOverlay({ lat, lng, accuracy });
+      },
+      (err) => {
+        // Permission denied or unavailable — just don't show the dot.
+        console.warn("[geo] watchPosition error", err);
+        // If user denied, stop watching to avoid noisy retries.
+        if (err && "code" in err && (err as GeolocationPositionError).code === 1) {
+          stopGeoWatch();
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 10_000,
+        timeout: 20_000,
+      }
+    );
+  }, [stopGeoWatch, updateCurrentLocationOverlay]);
+
+  // Search-result markers (multiple)
+  const resultMarkerMapRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const bounceTimerRef = useRef<number | null>(null);
+  const readyCalledRef = useRef(false);
 
   // day別ルート描画
   const polylinesRef = useRef<Map<number, google.maps.Polyline>>(new Map());
@@ -174,7 +309,16 @@ export default function GoogleMapCanvas({
         mapRef.current = map;
         placesRef.current = new google.maps.places.PlacesService(map);
 
+        // Expose map/places for parent-driven searching (desktop Google Maps-like UI)
+        if (!readyCalledRef.current) {
+          readyCalledRef.current = true;
+          onMapReady?.({ map, places: placesRef.current });
+        }
+
         setReadyTick((n) => n + 1);
+
+        // Google Maps-like: show current location (blue dot) when permission is granted.
+        startGeoWatch();
 
         map.addListener("click", (e: any) => {
           // ★v3: マップをタップしたらメニューを格納（旅程は格納しない）
@@ -224,8 +368,9 @@ export default function GoogleMapCanvas({
 
     return () => {
       cancelled = true;
+      stopGeoWatch();
     };
-  }, []);
+  }, [startGeoWatch, stopGeoWatch]);
 
   // ② カテゴリ押下：面ハイライト
   useEffect(() => {
@@ -316,12 +461,20 @@ export default function GoogleMapCanvas({
         map.setZoom(zoom);
       }
 
-      if (markerRef.current) markerRef.current.setMap(null);
-      markerRef.current = new google.maps.Marker({
-        map,
-        position: { lat, lng },
-        title: "Selected",
-      });
+      // Optionally suppress marker (used for "Activity" mode)
+      if (focus.marker === false) {
+        if (markerRef.current) {
+          markerRef.current.setMap(null);
+          markerRef.current = null;
+        }
+      } else {
+        if (markerRef.current) markerRef.current.setMap(null);
+        markerRef.current = new google.maps.Marker({
+          map,
+          position: { lat, lng },
+          title: "Selected",
+        });
+      }
 
       return;
     }
@@ -367,6 +520,84 @@ export default function GoogleMapCanvas({
       });
     });
   }, [focus]);
+
+  // ③-b: Result markers (nearby search etc.)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const next = Array.isArray(resultMarkers) ? resultMarkers : [];
+    const nextIds = new Set(next.map((m) => m.id));
+
+    // Remove markers no longer present
+    for (const [id, mk] of resultMarkerMapRef.current.entries()) {
+      if (!nextIds.has(id)) {
+        mk.setMap(null);
+        resultMarkerMapRef.current.delete(id);
+      }
+    }
+
+    // Add/update
+    for (const m of next) {
+      if (!isFiniteLatLng(m.lat, m.lng)) continue;
+      const existing = resultMarkerMapRef.current.get(m.id);
+      if (existing) {
+        existing.setPosition({ lat: m.lat, lng: m.lng });
+        existing.setTitle(m.title ?? "");
+        existing.setMap(map);
+        continue;
+      }
+      const mk = new google.maps.Marker({
+        map,
+        position: { lat: m.lat, lng: m.lng },
+        title: m.title ?? "",
+        clickable: true,
+        zIndex: 120,
+      });
+      resultMarkerMapRef.current.set(m.id, mk);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      // no-op here (we clean via diffing). Intentionally not clearing all,
+      // because the effect re-runs frequently and clearing causes flicker.
+    };
+  }, [resultMarkers, readyTick]);
+
+  // ③-c: Highlight selected result marker (bounce briefly)
+  useEffect(() => {
+    if (!selectedResultId) return;
+    const mk = resultMarkerMapRef.current.get(selectedResultId);
+    if (!mk) return;
+
+    // Stop any previous bounce timer
+    if (bounceTimerRef.current != null) {
+      window.clearTimeout(bounceTimerRef.current);
+      bounceTimerRef.current = null;
+    }
+
+    try {
+      mk.setAnimation(google.maps.Animation.BOUNCE);
+      bounceTimerRef.current = window.setTimeout(() => {
+        mk.setAnimation(null);
+        bounceTimerRef.current = null;
+      }, 700);
+    } catch {
+      // ignore (Animation may be unavailable in rare cases)
+    }
+
+    return () => {
+      if (bounceTimerRef.current != null) {
+        window.clearTimeout(bounceTimerRef.current);
+        bounceTimerRef.current = null;
+      }
+      try {
+        mk.setAnimation(null);
+      } catch {
+        // ignore
+      }
+    };
+  }, [selectedResultId]);
 
   // ④ routes: day順に描画（day数は可変）
   const routePlans = useMemo(() => {

@@ -9,8 +9,14 @@ import GoogleMapCanvas, {
   type AreaFocus,
   type MapFocus,
   type PickedPlace,
+  type ResultMarker,
 } from "@/components/GoogleMapCanvas";
 import MapSearchBar from "@/components/MapSearchBar";
+import DesktopGoogleMapsPanel, {
+  type DesktopSearchChipKey,
+  type DesktopSearchMode,
+  type PlaceListItem,
+} from "@/components/DesktopGoogleMapsPanel";
 import { LeftDrawerBody } from "@/components/LeftDrawer";
 import DesktopSidePanel from "@/components/DesktopSidePanel";
 import SwipeSnapSheet from "@/components/SwipeSnapSheet";
@@ -217,9 +223,38 @@ export default function MapItineraryBuilder() {
   const [focus, setFocus] = useState<MapFocus>({ kind: "none" });
   const [area, setArea] = useState<AreaFocus>({ kind: "none" });
 
+  // Desktop Google Maps-like search UI state
+  const mapCtxRef = useRef<
+    { map: google.maps.Map; places: google.maps.places.PlacesService } | null
+  >(null);
+
+  const [desktopSearchMode, setDesktopSearchMode] = useState<DesktopSearchMode>("none");
+  const [desktopSearchQueryLabel, setDesktopSearchQueryLabel] = useState<string>("");
+  const [desktopSearchLoading, setDesktopSearchLoading] = useState(false);
+  const [desktopPlaceResults, setDesktopPlaceResults] = useState<PlaceListItem[]>([]);
+  const [desktopActivityResults, setDesktopActivityResults] = useState<MenuRow[]>([]);
+  const [desktopResultMarkers, setDesktopResultMarkers] = useState<ResultMarker[]>([]);
+  const [desktopSelectedPlaceId, setDesktopSelectedPlaceId] = useState<string | null>(null);
+  const desktopSearchReqIdRef = useRef(0);
+
+  const onMapReady = useCallback(
+    (ctx: { map: google.maps.Map; places: google.maps.places.PlacesService }) => {
+      mapCtxRef.current = ctx;
+    },
+    [],
+  );
+
   // Auth + save
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+
+  // Keep React state in sync with Firebase Auth session (persists across reloads).
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsub();
+  }, []);
 
   // Label shown in the itinerary panel when signed in.
   // (Avoids runtime ReferenceError when passed down.)
@@ -640,6 +675,385 @@ export default function MapItineraryBuilder() {
       setFocus({ kind: "latlng", lat: p.lat, lng: p.lng, zoom: 15, nonce: makeNonce() });
     }
   };
+
+  // Desktop "アクティビティ" results use the curated CSV list (カテゴリ: 全域).
+  // Selecting one should fill the itinerary but must NOT drop a map pin.
+  const onSelectFromActivityList = (p: MenuRow) => {
+    const targetId = selectedItemId ?? fallbackTargetId();
+    if (!targetId) return;
+
+    const nextId = nextIdAfter(items, targetId);
+
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === targetId
+          ? {
+              ...it,
+              name: p.title ?? it.name,
+              mapUrl: p.mapUrl ?? "",
+              hpUrl: p.hpUrl ?? "",
+              otaUrl: p.otaUrl ?? "",
+              thumbUrl: publicImageUrlFromImgCell(p.img ?? ""),
+              iconKey: String(p.icon ?? ""),
+              iconUrl: "",
+              socialLinks: [],
+              placeId: "",
+              lat: undefined,
+              lng: undefined,
+            }
+          : it,
+      ),
+    );
+
+    setSelectedItemId(nextId);
+  };
+
+  const clearDesktopSearchResults = useCallback(() => {
+    setDesktopSearchMode("none");
+    setDesktopSearchQueryLabel("");
+    setDesktopSearchLoading(false);
+    setDesktopPlaceResults([]);
+    setDesktopActivityResults([]);
+    setDesktopResultMarkers([]);
+    setDesktopSelectedPlaceId(null);
+  }, []);
+
+  const chipKeyToPlaceType = (key: DesktopSearchChipKey): string | null => {
+    switch (key) {
+      case "restaurant":
+        return "restaurant";
+      case "hotel":
+        return "lodging";
+      case "transit":
+        return "transit_station";
+      case "museum":
+        return "museum";
+      case "pharmacy":
+        return "pharmacy";
+      case "atm":
+        return "atm";
+      case "activity":
+        return null; // special case
+    }
+  };
+
+  const detectChipFromQuery = (query: string): DesktopSearchChipKey | null => {
+    const q = String(query ?? "").trim();
+    if (!q) return null;
+
+    // Match exact labels (JA / EN) as requested.
+    const ja = new Map<string, DesktopSearchChipKey>([
+      ["レストラン", "restaurant"],
+      ["ホテル", "hotel"],
+      ["アクティビティ", "activity"],
+      ["交通機関", "transit"],
+      ["美術館・博物館", "museum"],
+      ["美術館", "museum"],
+      ["博物館", "museum"],
+      ["薬局", "pharmacy"],
+      ["ATM", "atm"],
+      ["ＡＴＭ", "atm"],
+    ]);
+
+    const en = new Map<string, DesktopSearchChipKey>([
+      ["restaurants", "restaurant"],
+      ["restaurant", "restaurant"],
+      ["hotels", "hotel"],
+      ["hotel", "hotel"],
+      ["activities", "activity"],
+      ["activity", "activity"],
+      ["transit", "transit"],
+      ["museum", "museum"],
+      ["museums", "museum"],
+      ["pharmacy", "pharmacy"],
+      ["pharmacies", "pharmacy"],
+      ["atm", "atm"],
+    ]);
+
+    if (ja.has(q)) return ja.get(q) ?? null;
+    const lower = q.toLowerCase();
+    if (en.has(lower)) return en.get(lower) ?? null;
+    return null;
+  };
+
+  const toPlaceListItem = (r: google.maps.places.PlaceResult): PlaceListItem | null => {
+    const placeId = String(r.place_id ?? "").trim();
+    if (!placeId) return null;
+    const name = String(r.name ?? "").trim();
+    const address = String((r.formatted_address ?? r.vicinity ?? "") as any).trim();
+
+    let photoUrl: string | undefined;
+    try {
+      if (Array.isArray(r.photos) && r.photos[0]) {
+        photoUrl = r.photos[0].getUrl({ maxWidth: 96, maxHeight: 96 });
+      }
+    } catch {
+      // ignore
+    }
+
+    return {
+      placeId,
+      name,
+      address,
+      rating: typeof r.rating === "number" ? r.rating : undefined,
+      userRatingsTotal:
+        typeof (r as any).user_ratings_total === "number"
+          ? (r as any).user_ratings_total
+          : typeof (r as any).userRatingsTotal === "number"
+            ? (r as any).userRatingsTotal
+            : typeof r.user_ratings_total === "number"
+              ? r.user_ratings_total
+              : undefined,
+      photoUrl,
+    };
+  };
+
+  const toMarker = (r: google.maps.places.PlaceResult): ResultMarker | null => {
+    const placeId = String(r.place_id ?? "").trim();
+    const loc = r.geometry?.location;
+    if (!placeId || !loc) return null;
+    const lat = loc.lat();
+    const lng = loc.lng();
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { id: placeId, lat, lng, title: String(r.name ?? "") };
+  };
+
+  const estimateRadiusMeters = (map: google.maps.Map): number => {
+    const b = map.getBounds();
+    if (!b) return 4000;
+    const c = b.getCenter();
+    const ne = b.getNorthEast();
+
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371000;
+    const lat1 = toRad(c.lat());
+    const lat2 = toRad(ne.lat());
+    const dLat = lat2 - lat1;
+    const dLng = toRad(ne.lng() - c.lng());
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    const d = 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+
+    // Clamp to a reasonable range for nearby search.
+    return Math.max(1200, Math.min(8000, Math.round(d)));
+  };
+
+  const runDesktopPlaceSearch = useCallback(
+    (query: string) => {
+      const q = String(query ?? "").trim();
+      if (!q) return;
+
+      const ctx = mapCtxRef.current;
+      if (!ctx) {
+        console.warn("[desktop-search] map not ready");
+        return;
+      }
+
+      const { map, places } = ctx;
+      const reqId = ++desktopSearchReqIdRef.current;
+
+      setDesktopSearchLoading(true);
+      setDesktopSearchMode("place");
+      setDesktopSearchQueryLabel(q);
+      setDesktopSelectedPlaceId(null);
+      setDesktopActivityResults([]);
+      setDesktopPlaceResults([]);
+      setDesktopResultMarkers([]);
+
+      const request: google.maps.places.TextSearchRequest = { query: q };
+      const bounds = map.getBounds();
+      if (bounds) request.bounds = bounds;
+
+      places.textSearch(request, (results, status) => {
+        if (reqId !== desktopSearchReqIdRef.current) return;
+
+        setDesktopSearchLoading(false);
+
+        if (status !== "OK" || !results) {
+          setDesktopPlaceResults([]);
+          return;
+        }
+
+        const list = results.map(toPlaceListItem).filter(Boolean) as PlaceListItem[];
+        setDesktopPlaceResults(list);
+      });
+    },
+    [toPlaceListItem],
+  );
+
+  const runDesktopChipSearch = useCallback(
+    async (key: DesktopSearchChipKey) => {
+      const label =
+        lang === "ja"
+          ? {
+              restaurant: "レストラン",
+              hotel: "ホテル",
+              activity: "アクティビティ",
+              transit: "交通機関",
+              museum: "美術館・博物館",
+              pharmacy: "薬局",
+              atm: "ATM",
+            }[key]
+          : {
+              restaurant: "Restaurants",
+              hotel: "Hotels",
+              activity: "Activities",
+              transit: "Transit",
+              museum: "Museums",
+              pharmacy: "Pharmacies",
+              atm: "ATM",
+            }[key];
+
+      // Special: Activity uses curated list (全域) and does NOT drop pins.
+      if (key === "activity") {
+        const list = leftMenuData?.byCategory.get("全域") ?? [];
+        setDesktopSearchMode("activity");
+        setDesktopSearchQueryLabel(label);
+        setDesktopSearchLoading(false);
+        setDesktopActivityResults(list);
+        setDesktopPlaceResults([]);
+        setDesktopResultMarkers([]);
+        setDesktopSelectedPlaceId(null);
+
+        // Focus map to 南木曽町 (without marker)
+        const ACTIVITY_MAP_URL = "https://maps.app.goo.gl/cLPqCSX6WifaR2ce6";
+        const fallback = { lat: 35.61, lng: 137.61 };
+        try {
+          const loc = await resolveMapUrlToLatLng(ACTIVITY_MAP_URL);
+          const ll = loc ?? fallback;
+          setFocus({
+            kind: "latlng",
+            lat: ll.lat,
+            lng: ll.lng,
+            zoom: 12,
+            marker: false,
+            nonce: makeNonce(),
+          });
+        } catch {
+          setFocus({
+            kind: "latlng",
+            lat: fallback.lat,
+            lng: fallback.lng,
+            zoom: 12,
+            marker: false,
+            nonce: makeNonce(),
+          });
+        }
+
+        return;
+      }
+
+      const placeType = chipKeyToPlaceType(key);
+      if (!placeType) return;
+
+      const ctx = mapCtxRef.current;
+      if (!ctx) {
+        console.warn("[desktop-search] map not ready");
+        return;
+      }
+
+      const { map, places } = ctx;
+      const reqId = ++desktopSearchReqIdRef.current;
+
+      setDesktopSearchLoading(true);
+      setDesktopSearchMode("category");
+      setDesktopSearchQueryLabel(label);
+      setDesktopSelectedPlaceId(null);
+      setDesktopActivityResults([]);
+      setDesktopPlaceResults([]);
+      setDesktopResultMarkers([]);
+
+      const center = map.getCenter();
+      const radius = estimateRadiusMeters(map);
+      if (!center) {
+        setDesktopSearchLoading(false);
+        return;
+      }
+
+      places.nearbySearch(
+        {
+          location: center,
+          radius,
+          type: placeType as any,
+        },
+        (results, status) => {
+          if (reqId !== desktopSearchReqIdRef.current) return;
+          setDesktopSearchLoading(false);
+
+          if (status !== "OK" || !results) {
+            setDesktopPlaceResults([]);
+            setDesktopResultMarkers([]);
+            return;
+          }
+
+          const list = results.map(toPlaceListItem).filter(Boolean) as PlaceListItem[];
+          setDesktopPlaceResults(list);
+
+          const markers = results.map(toMarker).filter(Boolean) as ResultMarker[];
+          setDesktopResultMarkers(markers);
+        },
+      );
+    },
+    [chipKeyToPlaceType, estimateRadiusMeters, lang, leftMenuData?.byCategory, toMarker, toPlaceListItem],
+  );
+
+  const runDesktopSearchFromQuery = useCallback(
+    (query: string) => {
+      const q = String(query ?? "").trim();
+      if (!q) return;
+      const chip = detectChipFromQuery(q);
+      if (chip) {
+        void runDesktopChipSearch(chip);
+        return;
+      }
+      runDesktopPlaceSearch(q);
+    },
+    [runDesktopChipSearch, runDesktopPlaceSearch],
+  );
+
+  const onDesktopSelectPlace = useCallback(
+    (placeId: string) => {
+      const pid = String(placeId ?? "").trim();
+      if (!pid) return;
+
+      const ctx = mapCtxRef.current;
+      if (!ctx) return;
+
+      setDesktopSelectedPlaceId(pid);
+
+      const fields: (keyof google.maps.places.PlaceResult)[] = [
+        "place_id",
+        "name",
+        "geometry",
+        "url",
+        "website",
+        "types",
+        "icon",
+      ];
+
+      ctx.places.getDetails({ placeId: pid, fields }, (p, status) => {
+        if (status !== "OK" || !p) return;
+        const loc = p.geometry?.location;
+        const lat = loc ? loc.lat() : undefined;
+        const lng = loc ? loc.lng() : undefined;
+
+        const picked: PickedPlace = {
+          placeId: String(p.place_id ?? pid),
+          name: String(p.name ?? ""),
+          mapUrl: String((p as any).url ?? ""),
+          website: String((p as any).website ?? ""),
+          iconUrl: String((p as any).icon ?? ""),
+          types: (p as any).types ?? [],
+          lat: typeof lat === "number" ? lat : undefined,
+          lng: typeof lng === "number" ? lng : undefined,
+        } as any;
+
+        onPickFromSearch(picked);
+      });
+    },
+    [onPickFromSearch],
+  );
 
   // Day +
   const insertDayAfter = (day: number) => {
@@ -1071,6 +1485,7 @@ const saveButtonText = user
       <GoogleMapCanvas
         selectedItemId={selectedItemId}
         onPickPlace={onPickPlace}
+        onMapReady={onMapReady}
         onMapTap={() => {
           // On mobile, the menu covers the map so a tap should dismiss it.
           // On desktop, side panels don't block the map, so we keep them as-is.
@@ -1079,6 +1494,8 @@ const saveButtonText = user
         focus={focus}
         area={area}
         items={items}
+        resultMarkers={desktopResultMarkers}
+        selectedResultId={desktopSelectedPlaceId}
       />
 
       {/* JP/EN switch (top-right) */}
@@ -1087,7 +1504,25 @@ const saveButtonText = user
       </div>
 
       {/* Search */}
-      <MapSearchBar onPick={onPickFromSearch} />
+      {isMobile ? (
+        <MapSearchBar onPick={onPickFromSearch} />
+      ) : (
+        <DesktopGoogleMapsPanel
+          mode={desktopSearchMode}
+          queryLabel={desktopSearchQueryLabel}
+          loading={desktopSearchLoading}
+          results={desktopPlaceResults}
+          activityResults={desktopActivityResults}
+          selectedPlaceId={desktopSelectedPlaceId}
+          onSubmitQuery={runDesktopSearchFromQuery}
+          onSelectChip={(key) => {
+            void runDesktopChipSearch(key);
+          }}
+          onSelectPlaceId={onDesktopSelectPlace}
+          onSelectActivity={onSelectFromActivityList}
+          onClearResults={clearDesktopSearchResults}
+        />
+      )}
 
       {/* Itinerary (bottom sheet) */}
       {isMobile ? (
@@ -1162,7 +1597,13 @@ const saveButtonText = user
         </DesktopSidePanel>
       )}
 
-      {/* Menu */}
+      {/*
+        Menu
+
+        - Mobile: keep the existing menu (top sheet)
+        - Desktop: hide the legacy left menu for now and replace it with the
+          Google Maps-like search UI.
+      */}
       {isMobile ? (
         leftMenuData ? (
           <SwipeSnapSheet
@@ -1190,38 +1631,7 @@ const saveButtonText = user
             </div>
           </SwipeSnapSheet>
         ) : null
-      ) : (
-        <DesktopSidePanel
-          side="left"
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          width={480}
-          className="z-[70] w-[480px] max-w-[92vw] text-neutral-100"
-        >
-          <div className="h-full p-2">
-            <div className="h-full bg-neutral-950/95 backdrop-blur border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden">
-              {leftMenuData ? (
-                <div className="h-full overflow-auto p-2 space-y-4">
-                  <LeftDrawerBody
-                    categories={leftMenuData.categories}
-                    byCategory={leftMenuData.byCategory}
-                    onCategoryPicked={onCategoryPicked}
-                    onSelectPlace={onSelectFromMenu}
-                    sampleTours={sampleData?.tours ?? []}
-                    onLoadSampleTour={onLoadSampleTour}
-                    savedItineraries={savedList}
-                    onLoadItinerary={onLoadItinerary}
-                    userLabel={userLabel}
-                    onRequestLogin={onRequestLogin}
-                  />
-                </div>
-              ) : (
-                <div className="p-4 text-neutral-300">{t("common.loading")}</div>
-              )}
-            </div>
-          </div>
-        </DesktopSidePanel>
-      )}
+      ) : null}
 
       {/* Floating toggle buttons (mobile only) */}
       {isMobile ? (
@@ -1253,8 +1663,10 @@ const saveButtonText = user
       <div
         className="fixed z-[80] flex items-center gap-4 text-sm font-semibold text-neutral-100"
         style={{
-            // Google Maps の左下UI（コンパス/エラー表示など）と被りやすいので、やや右に寄せる
-            left: "calc(env(safe-area-inset-left, 0px) + 220px)",
+            // Google Maps風の左パネルがあるため、PCでは少し右に寄せてマップ上に出す
+            left: isMobile
+              ? "calc(env(safe-area-inset-left, 0px) + 16px)"
+              : "calc(env(safe-area-inset-left, 0px) + 420px)",
           bottom: isMobile
             ? "calc(env(safe-area-inset-bottom, 0px) + 64px)"
             : "16px",
@@ -1294,6 +1706,7 @@ const saveButtonText = user
           setGpsStartAfterLogin(false);
         }}
         onSuccess={(u) => {
+          setUser(u);
           setAuthOpen(false);
           refreshList(u);
           if (saveAfterLogin) {
