@@ -1518,7 +1518,7 @@ const saveButtonText = user
           onSelectChip={(key) => {
             void runDesktopChipSearch(key);
           }}
-          onSelectPlaceId={onDesktopSelectPlace}
+          onSelectPlace={onDesktopSelectPlace}
           onSelectActivity={onSelectFromActivityList}
           onClearResults={clearDesktopSearchResults}
         />
