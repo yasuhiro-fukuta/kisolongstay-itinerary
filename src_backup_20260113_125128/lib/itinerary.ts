@@ -46,15 +46,6 @@ export type ItineraryItem = {
   iconUrl?: string;
 };
 
-/**
- * Dayごとのテキスト（スマホUIの「コメント」「日記」用）。
- * - 旅程保存（Firestore）時に一緒に保存され、ロード時に復元される。
- */
-export type DayNote = {
-  comment?: string;
-  diary?: string;
-};
-
 function makeId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? `spot:${crypto.randomUUID()}`

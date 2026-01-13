@@ -25,7 +25,7 @@ import AuthModal from "@/components/AuthModal";
 import LanguageSwitch from "@/components/LanguageSwitch";
 
 import { auth, db } from "@/lib/firebaseClient";
-import { makeEmptySpot, makeInitialItems, type DayNote, type ItineraryItem } from "@/lib/itinerary";
+import { makeEmptySpot, makeInitialItems, type ItineraryItem } from "@/lib/itinerary";
 import {
   saveItinerary,
   listItineraries,
@@ -214,20 +214,6 @@ export default function MapItineraryBuilder() {
     const maxDay = Math.max(1, ...items.map((x) => Number(x.day) || 1));
     return maxDay;
   }, [items]);
-
-  // Dayごとの「コメント」「日記」
-  const makeEmptyDayNote = (): DayNote => ({ comment: "", diary: "" });
-  const [dayNotes, setDayNotes] = useState<DayNote[]>(() => [makeEmptyDayNote()]);
-
-  // items側のdayCountに合わせて、dayNotes配列の長さを自動調整
-  useEffect(() => {
-    setDayNotes((prev) => {
-      if (prev.length === dayCount) return prev;
-      const next = prev.slice(0, dayCount);
-      while (next.length < dayCount) next.push(makeEmptyDayNote());
-      return next;
-    });
-  }, [dayCount]);
 
   const dates = useMemo(
     () => Array.from({ length: dayCount }, (_, i) => addDays(baseDate, i)),
@@ -1091,14 +1077,6 @@ export default function MapItineraryBuilder() {
       return next;
     });
 
-    // Dayノートも同じ位置に1日分挿入する（新しいDay = d+1）
-    setDayNotes((prev) => {
-      const insertIdx = Math.min(Math.max(d, 0), prev.length); // 0-based
-      const next = [...prev];
-      next.splice(insertIdx, 0, makeEmptyDayNote());
-      return next;
-    });
-
     setSelectedItemId(newItem.id);
     ensureItineraryOpen();
   };
@@ -1122,31 +1100,6 @@ export default function MapItineraryBuilder() {
       if (!exists) setSelectedItemId(shifted[0]?.id ?? null);
 
       return shifted;
-    });
-
-    // Dayノートも同じDayを削除して詰める
-    setDayNotes((prev) => {
-      const next = [...prev];
-      const removeIdx = Math.min(Math.max(d - 1, 0), Math.max(0, next.length - 1));
-      if (next.length) next.splice(removeIdx, 1);
-      if (!next.length) next.push(makeEmptyDayNote());
-      return next;
-    });
-
-    ensureItineraryOpen();
-  };
-
-  const updateDayNote = (day: number, patch: Partial<DayNote>) => {
-    const d = Math.max(1, Math.trunc(day || 1));
-    setDayNotes((prev) => {
-      const next = [...prev];
-      while (next.length < d) next.push(makeEmptyDayNote());
-      const cur = next[d - 1] ?? makeEmptyDayNote();
-      next[d - 1] = {
-        ...cur,
-        ...patch,
-      };
-      return next;
     });
   };
 
@@ -1226,20 +1179,7 @@ export default function MapItineraryBuilder() {
         setTitleTouched(true);
       }
       if (loaded.dates?.[0]) setBaseDate(String(loaded.dates[0]));
-      const loadedItems = loaded.items ?? [];
-      setItems(loadedItems);
-
-      // Dayノート（コメント／日記）もロード（古い旅程には存在しないので空で初期化）
-      const lenFromDates = Array.isArray(loaded.dates) ? loaded.dates.length : 0;
-      const lenFromItems = Math.max(1, ...loadedItems.map((x) => Number(x.day) || 1));
-      const len = Math.max(1, lenFromDates, lenFromItems);
-      const loadedNotes = Array.isArray(loaded.dayNotes) ? loaded.dayNotes : [];
-      setDayNotes(
-        Array.from({ length: len }, (_, idx) => ({
-          comment: String(loadedNotes[idx]?.comment ?? ""),
-          diary: String(loadedNotes[idx]?.diary ?? ""),
-        }))
-      );
+      setItems(loaded.items);
       showToast(t("toast.loadedItinerary"), 1500);
       ensureItineraryOpen();
     } catch (e: any) {
@@ -1306,8 +1246,6 @@ export default function MapItineraryBuilder() {
 
     setItems(next);
     setSelectedItemId(next[0]?.id ?? null);
-    // サンプル読込時はDayノートは空で初期化
-    setDayNotes(Array.from({ length: maxDay }, () => makeEmptyDayNote()));
     ensureItineraryOpen();
     closeMenu();
 
@@ -1503,7 +1441,6 @@ export default function MapItineraryBuilder() {
           uid: u.uid,
           dates,
           items,
-          dayNotes,
           title: itineraryTitle.trim() || "Itinerary",
         });
         setSavedFlash(true);
@@ -1518,7 +1455,7 @@ export default function MapItineraryBuilder() {
         setSaving(false);
       }
     },
-    [dates, items, dayNotes, itineraryTitle, lang, refreshList, showToast]
+    [baseDate, items, itineraryTitle, lang, refreshList, showToast]
   );
 
   const onSaveClick = useCallback(() => {
@@ -1581,7 +1518,7 @@ const saveButtonText = user
           onSelectChip={(key) => {
             void runDesktopChipSearch(key);
           }}
-          onSelectPlace={onDesktopSelectPlace}
+          onSelectPlaceId={onDesktopSelectPlace}
           onSelectActivity={onSelectFromActivityList}
           onClearResults={clearDesktopSearchResults}
         />
@@ -1608,8 +1545,6 @@ const saveButtonText = user
             selectedItemId={selectedItemId}
             onSelectItem={(id) => setSelectedItemId(id)}
             onChangeCostMemo={onChangeCostMemo}
-            dayNotes={dayNotes}
-            onUpdateDayNote={updateDayNote}
             onInsertDayAfter={insertDayAfter}
             onRemoveDay={removeDay}
             onInsertRowAfter={insertRowAfter}
@@ -1646,8 +1581,6 @@ const saveButtonText = user
                 selectedItemId={selectedItemId}
                 onSelectItem={(id) => setSelectedItemId(id)}
                 onChangeCostMemo={onChangeCostMemo}
-                dayNotes={dayNotes}
-                onUpdateDayNote={updateDayNote}
                 onInsertDayAfter={insertDayAfter}
                 onRemoveDay={removeDay}
                 onInsertRowAfter={insertRowAfter}

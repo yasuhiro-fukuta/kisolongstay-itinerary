@@ -1,7 +1,6 @@
 // src/components/ItineraryPanel.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import type { DayNote, ItineraryItem } from "@/lib/itinerary";
 import { dayColor, hexToRgba } from "@/lib/dayColors";
 import { translateSpotTitle, useI18n } from "@/lib/i18n";

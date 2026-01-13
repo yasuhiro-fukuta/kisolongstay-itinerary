@@ -1,8 +1,7 @@
 // src/components/ItineraryPanel.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { DayNote, ItineraryItem } from "@/lib/itinerary";
+import type { ItineraryItem } from "@/lib/itinerary";
 import { dayColor, hexToRgba } from "@/lib/dayColors";
 import { translateSpotTitle, useI18n } from "@/lib/i18n";
 
@@ -110,9 +109,6 @@ export default function ItineraryPanel({
   onSelectItem,
   onChangeCostMemo,
 
-  dayNotes,
-  onUpdateDayNote,
-
   onInsertDayAfter,
   onRemoveDay,
   onInsertRowAfter,
@@ -137,9 +133,6 @@ export default function ItineraryPanel({
   onSelectItem: (id: string) => void;
   onChangeCostMemo: (itemId: string, value: string) => void;
 
-  dayNotes: DayNote[];
-  onUpdateDayNote: (dayNumber: number, patch: Partial<DayNote>) => void;
-
   onInsertDayAfter: (day: number) => void;
   onRemoveDay: (day: number) => void;
   onInsertRowAfter: (itemId: string) => void;
@@ -157,32 +150,6 @@ export default function ItineraryPanel({
 }) {
   const { lang, t } = useI18n();
   const locale = lang === "ja" ? "ja-JP" : "en-US";
-
-  type DayTextKind = "comment" | "diary";
-
-  const [noteEditor, setNoteEditor] = useState<{ dayNumber: number; kind: DayTextKind } | null>(null);
-  const [noteDraft, setNoteDraft] = useState<string>("");
-  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    if (!noteEditor) return;
-    // モーダルが開いたらフォーカス
-    const timer = setTimeout(() => noteTextareaRef.current?.focus(), 0);
-    return () => clearTimeout(timer);
-  }, [noteEditor]);
-
-  const openNoteEditor = (dayNumber: number, kind: DayTextKind) => {
-    const idx = Math.max(0, dayNumber - 1);
-    const existing = dayNotes?.[idx]?.[kind] ?? "";
-    setNoteDraft(String(existing));
-    setNoteEditor({ dayNumber, kind });
-  };
-
-  const closeNoteEditor = () => {
-    if (!noteEditor) return;
-    onUpdateDayNote(noteEditor.dayNumber, { [noteEditor.kind]: noteDraft } as Partial<DayNote>);
-    setNoteEditor(null);
-  };
 
   const groups = groupByDay(items);
   const totalCostYen = items.reduce((sum, it) => sum + parseCostMemoToYen(it.costMemo), 0);
@@ -265,10 +232,6 @@ export default function ItineraryPanel({
           const color = dayColor(day);
           const dateLabel = addDays(baseDate, day - 1);
 
-          const note = dayNotes?.[day - 1] ?? {};
-          const hasComment = String(note.comment ?? "").trim().length > 0;
-          const hasDiary = String(note.diary ?? "").trim().length > 0;
-
           return (
             <section
               key={day}
@@ -282,34 +245,8 @@ export default function ItineraryPanel({
               <div className="px-3 py-2 flex items-center gap-2 border-b border-neutral-800/70">
                 <div className="font-semibold">Day{day}</div>
 
-                <div className="ml-2 text-xs text-neutral-400">{dateLabel}</div>
-
-                {/* Mobile: comment / diary links */}
-                <div className="ml-1 flex items-center gap-1 md:hidden">
-                  <button
-                    type="button"
-                    onClick={() => openNoteEditor(day, "comment")}
-                    className={[
-                      "rounded-md px-2 py-1 text-xs border bg-neutral-950/40 hover:bg-neutral-900/40",
-                      hasComment ? "border-neutral-100 text-neutral-100" : "border-neutral-800 text-neutral-400",
-                    ].join(" ")}
-                    title={t("itinerary.commentLinkTitle")}
-                    aria-label={t("itinerary.commentLinkTitle")}
-                  >
-                    💬
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openNoteEditor(day, "diary")}
-                    className={[
-                      "rounded-md px-2 py-1 text-xs border bg-neutral-950/40 hover:bg-neutral-900/40",
-                      hasDiary ? "border-neutral-100 text-neutral-100" : "border-neutral-800 text-neutral-400",
-                    ].join(" ")}
-                    title={t("itinerary.diaryLinkTitle")}
-                    aria-label={t("itinerary.diaryLinkTitle")}
-                  >
-                    📓
-                  </button>
+                <div className="ml-2 text-xs text-neutral-300 rounded-md px-2 py-1 border border-neutral-800 bg-neutral-950/40">
+                  {dateLabel}
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
@@ -501,44 +438,6 @@ export default function ItineraryPanel({
           );
         })}
       </div>
-
-      {/* コメント／日記エディタ（モーダル） */}
-      {noteEditor ? (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-neutral-800 bg-neutral-950 shadow-xl">
-            <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-              <div className="text-sm font-semibold">
-                Day{noteEditor.dayNumber} {noteEditor.kind === "comment" ? t("itinerary.commentLinkTitle") : t("itinerary.diaryLinkTitle")}
-              </div>
-
-              <button
-                type="button"
-                onClick={closeNoteEditor}
-                className="rounded-md px-2 py-1 text-neutral-200 hover:bg-neutral-800"
-                title={t("common.close")}
-                aria-label={t("common.close")}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="p-3">
-              <textarea
-                ref={noteTextareaRef}
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                rows={10}
-                className="w-full resize-none rounded-lg border border-neutral-800 bg-neutral-950/40 p-3 text-sm text-neutral-100 focus:outline-none focus:border-neutral-600"
-                placeholder={
-                  noteEditor.kind === "comment"
-                    ? t("itinerary.commentPlaceholder")
-                    : t("itinerary.diaryPlaceholder")
-                }
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div className="px-3 pb-3 text-xs text-neutral-400">{t("itinerary.howTo")}</div>
     </div>

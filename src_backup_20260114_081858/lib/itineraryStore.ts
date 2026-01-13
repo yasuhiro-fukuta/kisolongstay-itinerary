@@ -1,7 +1,7 @@
 // src/lib/itineraryStore.ts
 import { addDoc, collection, getDoc, getDocs, query, where, doc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import { makeInitialItems, type DayNote, type ItineraryItem } from "@/lib/itinerary";
+import { makeInitialItems, type ItineraryItem } from "@/lib/itinerary";
 
 export type SavedItineraryMeta = {
   id: string;
@@ -44,13 +44,11 @@ export async function saveItinerary({
   uid,
   dates,
   items,
-  dayNotes,
   title,
 }: {
   uid: string;
   dates: string[];
   items: ItineraryItem[];
-  dayNotes?: DayNote[];
   title?: string;
 }) {
   const now = new Date();
@@ -87,21 +85,13 @@ export async function saveItinerary({
     return addLatLngIfValid(base, x.lat, x.lng);
   });
 
-  const safeDayNotes: DayNote[] = Array.isArray(dayNotes)
-    ? dayNotes.map((n) => ({
-        comment: String((n as any)?.comment ?? ""),
-        diary: String((n as any)?.diary ?? ""),
-      }))
-    : [];
-
   const ref = await addDoc(collection(db, "itineraries"), {
-    schemaVersion: 8, // v8: Dayノート（comment/diary）
+    schemaVersion: 7, // v7: UIメタ（thumbUrl/iconKey/iconUrl）
     uid,
     title: finalTitle,
     savedAtMs,
     dates: Array.isArray(dates) ? dates.map((d) => String(d ?? "")) : [],
     items: safeItems,
-    dayNotes: safeDayNotes,
   });
 
   return ref.id;
@@ -127,7 +117,7 @@ export async function listItineraries(uid: string): Promise<SavedItineraryMeta[]
 export async function loadItinerary(
   uidOrArgs: string | { uid: string; id: string },
   idMaybe?: string
-): Promise<{ title: string; dates: string[]; items: ItineraryItem[]; dayNotes?: DayNote[] }> {
+): Promise<{ title: string; dates: string[]; items: ItineraryItem[] }> {
   const uid = typeof uidOrArgs === "string" ? uidOrArgs : uidOrArgs.uid;
   const id = typeof uidOrArgs === "string" ? String(idMaybe ?? "") : uidOrArgs.id;
 
@@ -143,13 +133,6 @@ export async function loadItinerary(
   const title = String(data?.title ?? "").trim() || "保存済み旅程";
 
   const dates = Array.isArray(data?.dates) ? data.dates.map((v: any) => String(v ?? "")) : [];
-
-  const dayNotes: DayNote[] | undefined = Array.isArray(data?.dayNotes)
-    ? data.dayNotes.map((n: any) => ({
-        comment: String(n?.comment ?? ""),
-        diary: String(n?.diary ?? ""),
-      }))
-    : undefined;
 
   if (Array.isArray(data?.items)) {
     const parsed: ItineraryItem[] = data.items
@@ -181,8 +164,8 @@ export async function loadItinerary(
       })
       .filter(Boolean) as ItineraryItem[];
 
-    return { title, dates, items: parsed.length ? parsed : makeInitialItems(), dayNotes };
+    return { title, dates, items: parsed.length ? parsed : makeInitialItems() };
   }
 
-  return { title, dates, items: makeInitialItems(), dayNotes };
+  return { title, dates, items: makeInitialItems() };
 }
