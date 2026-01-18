@@ -147,6 +147,32 @@ export default function MapItineraryBuilder() {
     return () => mq.removeListener(update);
   }, []);
 
+  // Auto-load the most recently saved itinerary when the user logs in (or when the session is restored).
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      autoLoadLatestRef.current = false;
+      return;
+    }
+    if (autoLoadLatestRef.current) return;
+
+    (async () => {
+      try {
+        const list = await listItineraries(user.uid);
+        if (list.length) {
+          autoLoadLatestRef.current = true;
+          await onLoadItinerary(list[0].id);
+        } else {
+          autoLoadLatestRef.current = true;
+        }
+      } catch (e) {
+        console.error(e);
+        autoLoadLatestRef.current = true;
+      }
+    })();
+  }, [user]);
+
   // Mobile snap states: 0=edge, 1=1/3, 2=2/3
   const [menuSnap, setMenuSnap] = useState<0 | 1 | 2>(0);
   const [itinerarySnap, setItinerarySnap] = useState<0 | 1 | 2>(0);
@@ -259,8 +285,8 @@ export default function MapItineraryBuilder() {
   );
 
   // Auth + save
-  const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const autoLoadLatestRef = useRef(false);
 
   // Keep React state in sync with Firebase Auth session (persists across reloads).
   useEffect(() => {

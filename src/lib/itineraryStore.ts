@@ -1,5 +1,5 @@
 // src/lib/itineraryStore.ts
-import { addDoc, collection, getDoc, getDocs, query, where, doc } from "firebase/firestore";
+import { addDoc, collection, getDoc, getDocs, query, where, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { makeInitialItems, type DayNote, type ItineraryItem } from "@/lib/itinerary";
 
@@ -94,7 +94,19 @@ export async function saveItinerary({
       }))
     : [];
 
-  const ref = await addDoc(collection(db, "itineraries"), {
+// If an itinerary with the same title already exists for this user, overwrite the latest one.
+// This avoids creating duplicates when saving edits.
+const existingSnap = await getDocs(
+  query(collection(db, "itineraries"), where("uid", "==", uid), where("title", "==", finalTitle))
+);
+
+if (existingSnap.docs.length) {
+  // Pick the most recently saved doc (fallback to the first).
+  const picked = existingSnap.docs
+    .map((d) => ({ id: d.id, savedAtMs: Number((d.data() as any)?.savedAtMs ?? 0) }))
+    .sort((a, b) => b.savedAtMs - a.savedAtMs)[0];
+
+  await updateDoc(doc(db, "itineraries", picked.id), {
     schemaVersion: 8, // v8: Dayノート（comment/diary）
     uid,
     title: finalTitle,
@@ -104,7 +116,20 @@ export async function saveItinerary({
     dayNotes: safeDayNotes,
   });
 
-  return ref.id;
+  return picked.id;
+}
+
+const ref = await addDoc(collection(db, "itineraries"), {
+  schemaVersion: 8, // v8: Dayノート（comment/diary）
+  uid,
+  title: finalTitle,
+  savedAtMs,
+  dates: Array.isArray(dates) ? dates.map((d) => String(d ?? "")) : [],
+  items: safeItems,
+  dayNotes: safeDayNotes,
+});
+
+return ref.id;
 }
 
 export async function listItineraries(uid: string): Promise<SavedItineraryMeta[]> {
