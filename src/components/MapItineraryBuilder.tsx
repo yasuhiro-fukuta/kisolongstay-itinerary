@@ -15,6 +15,7 @@ import MapSearchBar from "@/components/MapSearchBar";
 import DesktopGoogleMapsPanel, {
   type DesktopSearchChipKey,
   type DesktopSearchMode,
+  type DesktopPlaceDetails,
   type PlaceListItem,
 } from "@/components/DesktopGoogleMapsPanel";
 import { LeftDrawerBody } from "@/components/LeftDrawer";
@@ -23,6 +24,7 @@ import SwipeSnapSheet from "@/components/SwipeSnapSheet";
 import ItineraryPanel from "@/components/ItineraryPanel";
 import AuthModal from "@/components/AuthModal";
 import LanguageSwitch from "@/components/LanguageSwitch";
+import DesktopChatWidget from "@/components/DesktopChatWidget";
 
 import { auth, db } from "@/lib/firebaseClient";
 import { makeEmptySpot, makeInitialItems, type DayNote, type ItineraryItem } from "@/lib/itinerary";
@@ -150,29 +152,6 @@ export default function MapItineraryBuilder() {
   // Auto-load the most recently saved itinerary when the user logs in (or when the session is restored).
   const [user, setUser] = useState<User | null>(null);
 
-  useEffect(() => {
-    if (!user) {
-      autoLoadLatestRef.current = false;
-      return;
-    }
-    if (autoLoadLatestRef.current) return;
-
-    (async () => {
-      try {
-        const list = await listItineraries(user.uid);
-        if (list.length) {
-          autoLoadLatestRef.current = true;
-          await onLoadItinerary(list[0].id);
-        } else {
-          autoLoadLatestRef.current = true;
-        }
-      } catch (e) {
-        console.error(e);
-        autoLoadLatestRef.current = true;
-      }
-    })();
-  }, [user]);
-
   // Mobile snap states: 0=edge, 1=1/3, 2=2/3
   const [menuSnap, setMenuSnap] = useState<0 | 1 | 2>(0);
   const [itinerarySnap, setItinerarySnap] = useState<0 | 1 | 2>(0);
@@ -275,7 +254,10 @@ export default function MapItineraryBuilder() {
   const [desktopActivityResults, setDesktopActivityResults] = useState<MenuRow[]>([]);
   const [desktopResultMarkers, setDesktopResultMarkers] = useState<ResultMarker[]>([]);
   const [desktopSelectedPlaceId, setDesktopSelectedPlaceId] = useState<string | null>(null);
+  const [desktopSelectedPlaceDetails, setDesktopSelectedPlaceDetails] = useState<DesktopPlaceDetails | null>(null);
   const desktopSearchReqIdRef = useRef(0);
+  // Used to ignore stale async place-details responses (e.g. user clicked another result).
+  const desktopPlaceDetailsReqIdRef = useRef(0);
 
   const onMapReady = useCallback(
     (ctx: { map: google.maps.Map; places: google.maps.places.PlacesService }) => {
@@ -305,6 +287,22 @@ export default function MapItineraryBuilder() {
   }, [user]);
 
   const [savedList, setSavedList] = useState<SavedItineraryMeta[]>([]);
+
+  // Auto-load the latest saved itinerary when the user is logged in.
+  // We wait until the saved list has been fetched (savedList becomes non-empty).
+  useEffect(() => {
+    if (!user) {
+      autoLoadLatestRef.current = false;
+      return;
+    }
+    if (autoLoadLatestRef.current) return;
+
+    // Wait for the user's saved itineraries to load.
+    if (savedList.length === 0) return;
+
+    autoLoadLatestRef.current = true;
+    void onLoadItinerary(savedList[0].id);
+  }, [user, savedList]);
   const [saving, setSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [saveAfterLogin, setSaveAfterLogin] = useState(false);
@@ -756,10 +754,13 @@ export default function MapItineraryBuilder() {
     setDesktopActivityResults([]);
     setDesktopResultMarkers([]);
     setDesktopSelectedPlaceId(null);
+    setDesktopSelectedPlaceDetails(null);
   }, []);
 
   const chipKeyToPlaceType = (key: DesktopSearchChipKey): string | null => {
     switch (key) {
+      case "all":
+        return null;
       case "restaurant":
         return "restaurant";
       case "hotel":
@@ -783,6 +784,7 @@ export default function MapItineraryBuilder() {
 
     // Match exact labels (JA / EN) as requested.
     const ja = new Map<string, DesktopSearchChipKey>([
+      ["全域", "all"],
       ["レストラン", "restaurant"],
       ["ホテル", "hotel"],
       ["アクティビティ", "activity"],
@@ -796,6 +798,7 @@ export default function MapItineraryBuilder() {
     ]);
 
     const en = new Map<string, DesktopSearchChipKey>([
+      ["all area", "all"],
       ["restaurants", "restaurant"],
       ["restaurant", "restaurant"],
       ["hotels", "hotel"],
@@ -897,6 +900,7 @@ export default function MapItineraryBuilder() {
       setDesktopSearchMode("place");
       setDesktopSearchQueryLabel(q);
       setDesktopSelectedPlaceId(null);
+      setDesktopSelectedPlaceDetails(null);
       setDesktopActivityResults([]);
       setDesktopPlaceResults([]);
       setDesktopResultMarkers([]);
@@ -927,6 +931,7 @@ export default function MapItineraryBuilder() {
       const label =
         lang === "ja"
           ? {
+              all: "全域",
               restaurant: "レストラン",
               hotel: "ホテル",
               activity: "アクティビティ",
@@ -936,6 +941,7 @@ export default function MapItineraryBuilder() {
               atm: "ATM",
             }[key]
           : {
+              all: "All area",
               restaurant: "Restaurants",
               hotel: "Hotels",
               activity: "Activities",
@@ -946,7 +952,7 @@ export default function MapItineraryBuilder() {
             }[key];
 
       // Special: Activity uses curated list (全域) and does NOT drop pins.
-      if (key === "activity") {
+      if (key === "activity" || key === "all") {
         const list = leftMenuData?.byCategory.get("全域") ?? [];
         setDesktopSearchMode("activity");
         setDesktopSearchQueryLabel(label);
@@ -955,6 +961,7 @@ export default function MapItineraryBuilder() {
         setDesktopPlaceResults([]);
         setDesktopResultMarkers([]);
         setDesktopSelectedPlaceId(null);
+        setDesktopSelectedPlaceDetails(null);
 
         // Focus map to 南木曽町 (without marker)
         const ACTIVITY_MAP_URL = "https://maps.app.goo.gl/cLPqCSX6WifaR2ce6";
@@ -1000,6 +1007,7 @@ export default function MapItineraryBuilder() {
       setDesktopSearchMode("category");
       setDesktopSearchQueryLabel(label);
       setDesktopSelectedPlaceId(null);
+      setDesktopSelectedPlaceDetails(null);
       setDesktopActivityResults([]);
       setDesktopPlaceResults([]);
       setDesktopResultMarkers([]);
@@ -1052,48 +1060,88 @@ export default function MapItineraryBuilder() {
     [runDesktopChipSearch, runDesktopPlaceSearch],
   );
 
-  const onDesktopSelectPlace = useCallback(
-    (placeId: string) => {
-      const pid = String(placeId ?? "").trim();
-      if (!pid) return;
+  const onDesktopSelectPlace = useCallback((placeId: string) => {
+    const pid = String(placeId ?? "").trim();
+    if (!pid) return;
 
-      const ctx = mapCtxRef.current;
-      if (!ctx) return;
+    const ctx = mapCtxRef.current;
+    if (!ctx) return;
 
-      setDesktopSelectedPlaceId(pid);
+    setDesktopSelectedPlaceId(pid);
+    setDesktopSelectedPlaceDetails(null);
+    const reqId = ++desktopPlaceDetailsReqIdRef.current;
 
-      const fields: (keyof google.maps.places.PlaceResult)[] = [
-        "place_id",
-        "name",
-        "geometry",
-        "url",
-        "website",
-        "types",
-        "icon",
-      ];
+    // Fetch richer details to show a Google-Maps-like detail card.
+    const fields: (keyof google.maps.places.PlaceResult)[] = [
+      "place_id",
+      "name",
+      "geometry",
+      "url",
+      "website",
+      "types",
+      "icon",
+      "formatted_address",
+      "rating",
+      "user_ratings_total",
+      "photos",
+    ];
 
-      ctx.places.getDetails({ placeId: pid, fields }, (p, status) => {
-        if (status !== "OK" || !p) return;
-        const loc = p.geometry?.location;
-        const lat = loc ? loc.lat() : undefined;
-        const lng = loc ? loc.lng() : undefined;
+    ctx.places.getDetails({ placeId: pid, fields }, (p, status) => {
+      if (reqId !== desktopPlaceDetailsReqIdRef.current) return;
+      if (status !== "OK" || !p) return;
 
-        const picked: PickedPlace = {
-          placeId: String(p.place_id ?? pid),
-          name: String(p.name ?? ""),
-          mapUrl: String((p as any).url ?? ""),
-          website: String((p as any).website ?? ""),
-          iconUrl: String((p as any).icon ?? ""),
-          types: (p as any).types ?? [],
-          lat: typeof lat === "number" ? lat : undefined,
-          lng: typeof lng === "number" ? lng : undefined,
-        } as any;
+      const loc = p.geometry?.location;
+      const lat = loc ? loc.lat() : undefined;
+      const lng = loc ? loc.lng() : undefined;
 
-        onPickFromSearch(picked);
+      const photoUrl = Array.isArray((p as any).photos) && (p as any).photos.length
+        ? (p as any).photos[0].getUrl({ maxWidth: 800, maxHeight: 450 })
+        : undefined;
+
+      setDesktopSelectedPlaceDetails({
+        placeId: String(p.place_id ?? pid),
+        name: String(p.name ?? ""),
+        formattedAddress: String((p as any).formatted_address ?? ""),
+        rating: typeof (p as any).rating === "number" ? (p as any).rating : undefined,
+        userRatingsTotal:
+          typeof (p as any).user_ratings_total === "number" ? (p as any).user_ratings_total : undefined,
+        photoUrl,
+        mapUrl: String((p as any).url ?? ""),
+        website: String((p as any).website ?? ""),
+        iconUrl: String((p as any).icon ?? ""),
+        types: (p as any).types ?? [],
+        lat: typeof lat === "number" ? lat : undefined,
+        lng: typeof lng === "number" ? lng : undefined,
       });
-    },
-    [onPickFromSearch],
-  );
+
+      if (typeof lat === "number" && typeof lng === "number") {
+        setFocus({ kind: "latlng", lat, lng, zoom: 15, nonce: makeNonce(), marker: false });
+      }
+    });
+  }, []);
+
+  const onCloseDesktopSelectedPlace = useCallback(() => {
+    setDesktopSelectedPlaceId(null);
+    setDesktopSelectedPlaceDetails(null);
+  }, []);
+
+  const onAddDesktopSelectedPlaceToItinerary = useCallback(() => {
+    if (!desktopSelectedPlaceDetails) return;
+
+    const d = desktopSelectedPlaceDetails;
+    const picked: PickedPlace = {
+      placeId: d.placeId,
+      name: d.name,
+      mapUrl: d.mapUrl,
+      website: d.website,
+      iconUrl: d.iconUrl,
+      types: d.types ?? [],
+      lat: d.lat,
+      lng: d.lng,
+    } as any;
+
+    onPickFromSearch(picked);
+  }, [desktopSelectedPlaceDetails, onPickFromSearch]);
 
   // Day +
   const insertDayAfter = (day: number) => {
@@ -1585,6 +1633,7 @@ const saveButtonText = user
         items={items}
         resultMarkers={desktopResultMarkers}
         selectedResultId={desktopSelectedPlaceId}
+        onSelectResult={onDesktopSelectPlace}
       />
 
       {/* JP/EN switch (top-right) */}
@@ -1603,6 +1652,7 @@ const saveButtonText = user
           results={desktopPlaceResults}
           activityResults={desktopActivityResults}
           selectedPlaceId={desktopSelectedPlaceId}
+          selectedPlaceDetails={desktopSelectedPlaceDetails}
           onSubmitQuery={runDesktopSearchFromQuery}
           onSelectChip={(key) => {
             void runDesktopChipSearch(key);
@@ -1610,6 +1660,11 @@ const saveButtonText = user
           onSelectPlace={onDesktopSelectPlace}
           onSelectActivity={onSelectFromActivityList}
           onClearResults={clearDesktopSearchResults}
+          onCloseSelectedPlace={onCloseDesktopSelectedPlace}
+          onAddSelectedPlaceToItinerary={onAddDesktopSelectedPlaceToItinerary}
+          // Pass available sample tour names when loaded (DesktopGoogleMapsPanel also has a safe default list).
+          sampleTours={sampleData?.tours?.map((t) => t.name) ?? undefined}
+          onLoadSampleTour={onLoadSampleTour}
         />
       )}
 
@@ -1753,18 +1808,21 @@ const saveButtonText = user
 
 
       {/* GPS ON / OFF */}
-      <div
-        className="fixed z-[80] flex items-center gap-4 text-sm font-semibold text-neutral-100"
-        style={{
-            // Google Maps風の左パネルがあるため、PCでは少し右に寄せてマップ上に出す
-            left: isMobile
-              ? "calc(env(safe-area-inset-left, 0px) + 16px)"
-              : "calc(env(safe-area-inset-left, 0px) + 420px)",
-          bottom: isMobile
-            ? "calc(env(safe-area-inset-bottom, 0px) + 64px)"
-            : "16px",
-        }}
-      >
+	      <div
+	        className="fixed z-[80] flex items-center gap-4 text-sm font-semibold text-neutral-100"
+	        style={{
+	          // Google Maps風の左パネルがあるため、検索結果表示中はPCでも少し右に寄せる。
+	          // 検索パネルが非表示のときは、できるだけ地図を広く使うため左端へ戻す。
+	          left: isMobile
+	            ? "calc(env(safe-area-inset-left, 0px) + 16px)"
+	          : desktopSearchMode !== "none" || desktopPlaceResults.length > 0 || desktopActivityResults.length > 0
+	              ? "calc(env(safe-area-inset-left, 0px) + 420px)"
+	              : "calc(env(safe-area-inset-left, 0px) + 16px)",
+	          bottom: isMobile
+	            ? "calc(env(safe-area-inset-bottom, 0px) + 64px)"
+	            : "16px",
+	        }}
+	      >
         <button
           type="button"
           onClick={onGpsOnClick}
@@ -1790,6 +1848,9 @@ const saveButtonText = user
           </div>
         </div>
       ) : null}
+
+		{/* Desktop-only floating chat widget (Nagisoneko) */}
+		{!isMobile ? <DesktopChatWidget /> : null}
 
       <AuthModal
         open={authOpen}

@@ -106,6 +106,7 @@ export default function GoogleMapCanvas({
   items,
   resultMarkers,
   selectedResultId,
+  onSelectResult,
   onMapReady,
 }: {
   selectedItemId: string | null;
@@ -118,6 +119,8 @@ export default function GoogleMapCanvas({
   resultMarkers?: ResultMarker[];
   /** Optional: highlight/bounce this marker id when it changes. */
   selectedResultId?: string | null;
+  /** Optional: select a search result when its marker is clicked. */
+  onSelectResult?: (placeId: string) => void;
   /** Optional callback when the underlying map + PlacesService is ready. */
   onMapReady?: (ctx: { map: google.maps.Map; places: google.maps.places.PlacesService }) => void;
 }) {
@@ -126,6 +129,12 @@ export default function GoogleMapCanvas({
   const mapRef = useRef<google.maps.Map | null>(null);
   const placesRef = useRef<google.maps.places.PlacesService | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
+
+  // Keep latest callback without re-creating markers.
+  const onSelectResultRef = useRef<typeof onSelectResult>(onSelectResult);
+  useEffect(() => {
+    onSelectResultRef.current = onSelectResult;
+  }, [onSelectResult]);
 
   // --- Current location (Google Maps-like blue dot) ---
   const currentLocationMarkerRef = useRef<google.maps.Marker | null>(null);
@@ -554,6 +563,11 @@ export default function GoogleMapCanvas({
         clickable: true,
         zIndex: 120,
       });
+
+      // Clicking a search-result pin should select it (like Google Maps).
+      mk.addListener("click", () => {
+        onSelectResultRef.current?.(m.id);
+      });
       resultMarkerMapRef.current.set(m.id, mk);
     }
 
@@ -719,7 +733,11 @@ export default function GoogleMapCanvas({
         })
         .catch((err) => {
           if (err?.name === "AbortError") return;
-          console.error("[walkroute] failed day", day, err);
+          if (!walkrouteErrorLoggedRef.current) {
+            walkrouteErrorLoggedRef.current = true;
+            console.error("[walkroute] failed day", day, err);
+          }
+
         });
     }
   }, [routePlans]);
