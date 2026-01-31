@@ -733,10 +733,10 @@ export default function GoogleMapCanvas({
         })
         .catch((err) => {
           if (err?.name === "AbortError") return;
-          if (!walkrouteErrorLoggedRef.current) {
-            walkrouteErrorLoggedRef.current = true;
-            console.error("[walkroute] failed day", day, err);
-          }
+//          if (!walkrouteErrorLoggedRef.current) {
+//            walkrouteErrorLoggedRef.current = true;
+//            console.error("[walkroute] failed day", day, err);
+//          }
 
         });
     }
