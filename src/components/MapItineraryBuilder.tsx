@@ -342,7 +342,7 @@ export default function MapItineraryBuilder() {
         if (!cancelled) {
           // Avoid infinite "loading"; show empty state instead.
           setLeftMenuData({ rows: [], categories: ["全域"], byCategory: new Map([["全域", []]]), byId: new Map() });
-          setSampleData({ tours: [], tourItems: {} } as any);
+          setSampleData({ tours: [], byTour: new Map(), entries: [] });
         }
       }
     })();
@@ -1663,7 +1663,7 @@ const saveButtonText = user
           onCloseSelectedPlace={onCloseDesktopSelectedPlace}
           onAddSelectedPlaceToItinerary={onAddDesktopSelectedPlaceToItinerary}
           // Pass available sample tour names when loaded (DesktopGoogleMapsPanel also has a safe default list).
-          sampleTours={sampleData?.tours?.map((t) => t.name) ?? undefined}
+          sampleTours={sampleData?.tours}
           onLoadSampleTour={onLoadSampleTour}
         />
       )}

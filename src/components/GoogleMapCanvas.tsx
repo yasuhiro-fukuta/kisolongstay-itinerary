@@ -247,7 +247,8 @@ export default function GoogleMapCanvas({
   const polylinesRef = useRef<Map<number, google.maps.Polyline>>(new Map());
   const abortRef = useRef<Map<number, AbortController>>(new Map());
   const lastKeyRef = useRef<Map<number, string>>(new Map());
-  // Avoid spamming console when walkroute API fails repeatedly.
+
+  // Prevent log spam when /api/walkroute fails repeatedly (e.g. quota / offline).
   const walkrouteErrorLoggedRef = useRef(false);
 
   // カテゴリ面ハイライト（複数リング対応）
