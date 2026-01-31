@@ -124,10 +124,7 @@ export default function GoogleMapCanvas({
   /** Optional callback when the underlying map + PlacesService is ready. */
   onMapReady?: (ctx: { map: google.maps.Map; places: google.maps.places.PlacesService }) => void;
 }) {
-  
-  // Log walkroute fetch failures only once (avoid noisy console)
-  const walkrouteErrorLoggedRef = useRef(false);
-const divRef = useRef<HTMLDivElement | null>(null);
+  const divRef = useRef<HTMLDivElement | null>(null);
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const placesRef = useRef<google.maps.places.PlacesService | null>(null);

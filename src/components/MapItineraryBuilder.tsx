@@ -24,6 +24,7 @@ import SwipeSnapSheet from "@/components/SwipeSnapSheet";
 import ItineraryPanel from "@/components/ItineraryPanel";
 import AuthModal from "@/components/AuthModal";
 import LanguageSwitch from "@/components/LanguageSwitch";
+import DesktopChatWidget from "@/components/DesktopChatWidget";
 
 import { auth, db } from "@/lib/firebaseClient";
 import { makeEmptySpot, makeInitialItems, type DayNote, type ItineraryItem } from "@/lib/itinerary";
@@ -1662,7 +1663,7 @@ const saveButtonText = user
           onCloseSelectedPlace={onCloseDesktopSelectedPlace}
           onAddSelectedPlaceToItinerary={onAddDesktopSelectedPlaceToItinerary}
           // Pass available sample tour names when loaded (DesktopGoogleMapsPanel also has a safe default list).
-          sampleTours={sampleData?.tours ?? undefined}
+          sampleTours={sampleData?.tours?.map((t) => t.name) ?? undefined}
           onLoadSampleTour={onLoadSampleTour}
         />
       )}
@@ -1807,18 +1808,21 @@ const saveButtonText = user
 
 
       {/* GPS ON / OFF */}
-      <div
-        className="fixed z-[80] flex items-center gap-4 text-sm font-semibold text-neutral-100"
-        style={{
-            // Google Maps風の左パネルがあるため、PCでは少し右に寄せてマップ上に出す
-            left: isMobile
-              ? "calc(env(safe-area-inset-left, 0px) + 16px)"
-              : "calc(env(safe-area-inset-left, 0px) + 420px)",
-          bottom: isMobile
-            ? "calc(env(safe-area-inset-bottom, 0px) + 64px)"
-            : "16px",
-        }}
-      >
+	      <div
+	        className="fixed z-[80] flex items-center gap-4 text-sm font-semibold text-neutral-100"
+	        style={{
+	          // Google Maps風の左パネルがあるため、検索結果表示中はPCでも少し右に寄せる。
+	          // 検索パネルが非表示のときは、できるだけ地図を広く使うため左端へ戻す。
+	          left: isMobile
+	            ? "calc(env(safe-area-inset-left, 0px) + 16px)"
+	          : desktopSearchMode !== "none" || desktopPlaceResults.length > 0 || desktopActivityResults.length > 0
+	              ? "calc(env(safe-area-inset-left, 0px) + 420px)"
+	              : "calc(env(safe-area-inset-left, 0px) + 16px)",
+	          bottom: isMobile
+	            ? "calc(env(safe-area-inset-bottom, 0px) + 64px)"
+	            : "16px",
+	        }}
+	      >
         <button
           type="button"
           onClick={onGpsOnClick}
@@ -1844,6 +1848,9 @@ const saveButtonText = user
           </div>
         </div>
       ) : null}
+
+		{/* Desktop-only floating chat widget (Nagisoneko) */}
+		{!isMobile ? <DesktopChatWidget /> : null}
 
       <AuthModal
         open={authOpen}
