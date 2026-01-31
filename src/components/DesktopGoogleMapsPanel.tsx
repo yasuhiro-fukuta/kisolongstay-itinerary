@@ -279,10 +279,11 @@ export default function DesktopGoogleMapsPanel({
   );
 
 	// Once the results panel is shown, behave like Google Maps: stop showing autocomplete.
-	const showPredList = open && !showSidePanel && (predLoading || predictions.length > 0);
-  const showResults = mode !== "none";
+	const showResults = mode !== "none";
   const showSidePanel = showResults || loading || Boolean(selectedPlaceId) || Boolean(selectedPlaceDetails);
 
+  
+const showPredList = open && !showSidePanel && (predLoading || predictions.length > 0);
   // When we enter the results panel, the autocomplete dropdown should not linger
   // (Google Maps behavior). Also cancel any pending prediction work.
   useEffect(() => {
